@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Pre-push Git Hook - YubiKey Verification
+# Installed by tomb-of-nazarick yubikey-git-setup
+# Requires physical YubiKey tap before pushing to remote
+
+set -euo pipefail
+
+# Locate tomb-of-nazarick directory
+TOMB_DIR="${TOMB_DIR:-/Users/fweir/git/internal/repos/tomb-of-nazarick}"
+VERIFY_SCRIPT="${TOMB_DIR}/scripts/yubikey-verify.sh"
+
+# Color output
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+# Check if verification script exists
+if [ ! -x "$VERIFY_SCRIPT" ]; then
+    echo -e "${YELLOW}⚠️  YubiKey verification script not found at: $VERIFY_SCRIPT${NC}" >&2
+    echo -e "${YELLOW}⚠️  Pre-push hook cannot enforce YubiKey requirement${NC}" >&2
+    echo -e "${YELLOW}⚠️  This is a security risk! Please run: fortify yubikey setup${NC}" >&2
+    exit 0  # Don't block push if script is missing (for now)
+fi
+
+# Get push details from stdin
+while read local_ref local_sha remote_ref remote_sha; do
+    # Build a descriptive operation string
+    OPERATION="git push (${remote_ref##refs/heads/} -> remote)"
+
+    # Verify YubiKey
+    if ! "$VERIFY_SCRIPT" "$OPERATION"; then
+        echo -e "${RED}❌ YubiKey verification failed in pre-push hook${NC}" >&2
+        echo -e "${RED}❌ Push aborted for security${NC}" >&2
+        exit 1
+    fi
+
+    # Only need to verify once per push (not per ref)
+    break
+done
+
+exit 0

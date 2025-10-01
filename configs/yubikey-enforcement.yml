@@ -1,0 +1,71 @@
+# YubiKey Git Enforcement Configuration
+# Managed by tomb-of-nazarick/scripts/yubikey-git-setup.sh
+# Last updated: 2025-09-30
+
+enforcement:
+  enabled: true                # Master switch for YubiKey enforcement
+  require_tap: true            # Require physical tap (vs just presence)
+  timeout_seconds: 10          # How long to wait for tap
+  retry_attempts: 3            # Failed attempts before lockout warning
+
+verification:
+  method: auto                 # auto, fido2, otp, presence
+  # auto: Try FIDO2 first, fall back to OTP, then presence
+  # fido2: FIDO2 get-assertion only (most secure)
+  # otp: Challenge-response via OTP slot
+  # presence: Simple detection (least secure)
+
+  challenge_length: 32         # Bytes for challenge generation
+  log_verifications: true      # Log all verification attempts
+
+operations:
+  git:
+    push: required             # required, optional, disabled
+    pull: required
+    fetch: required
+    clone: required
+    remote_add: optional       # May not need verification
+    submodule_update: required
+
+  gh:
+    pr_create: required
+    pr_merge: required
+    release_create: required
+    repo_clone: required
+    issue_create: optional     # Less sensitive
+    workflow_run: required
+
+exemptions:
+  # Repositories that don't require enforcement
+  repos: []
+  # Example: ["/path/to/public-repo", "/path/to/test-repo"]
+
+  # Operations that don't require enforcement
+  operations: []
+  # Example: ["git pull", "gh issue create"]
+
+  # Time-based exemption (after verification)
+  cached_duration_minutes: 0   # 0 = require tap every time
+  # Setting to 5 means: tap once, operations allowed for 5 min
+
+security:
+  alert_on_bypass_attempt: true
+  log_file: ~/.tomb-yubikey-verifications.log
+  max_failed_attempts: 5       # Before alerting
+  alert_command: "osascript -e 'display notification \"YubiKey verification failed multiple times\" with title \"Security Alert\" sound name \"Basso\"'"
+
+integration:
+  fortify_managed: true
+  auto_update_hooks: true      # Update hooks when fortify updates
+  workspace_repos:
+    - /Users/fweir/git/internal/repos/tomb-of-nazarick
+    - /Users/fweir/git/internal/repos/carian-observatory
+    - /Users/fweir/git/internal/repos/fifth-symphony
+    - /Users/fweir/git/internal/repos/EchoLink-Reborn
+
+devices:
+  # Multiple YubiKeys can be registered for redundancy
+  allowed_serials:
+    - 30945664  # Primary YubiKey 5C Nano
+
+  require_specific_device: false  # Allow any from list
