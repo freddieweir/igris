@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+._*
+
+# Logs
+*.log
+
+# Backups
+*.bak
+*.backup
+*~
+
+# Local configuration (users may have custom configs)
+configs/yubikey-enforcement.yml.local
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test files
+test/
+tmp/
