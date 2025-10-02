@@ -89,20 +89,12 @@ Igris implements a defense-in-depth security model with three enforcement layers
    - Excellent alternative when YubiKey unavailable
    - macOS only
 
-3. **YubiKey OTP without Guaranteed Touch** (LESS SECURE)
-   - Fallback if slot not configured with --touch
-   - Still cryptographic but no guaranteed tap
-   - Warns user to reconfigure for security
+3. **YubiKey OTP without Guaranteed Touch** (ACCEPTABLE)
+   - Used if slot not configured with --touch flag
+   - Still cryptographic verification
+   - Warns user to reconfigure for maximum security
 
-4. **YubiKey FIDO2 Presence Check** (INSECURE)
-   - Only verifies YubiKey is plugged in
-   - No tap requirement
-   - Loudly warns this provides minimal security
-
-5. **Simple Presence** (INSECURE FALLBACK)
-   - Last resort verification
-   - Critical warnings displayed
-   - Only checks device connectivity
+**Note**: All insecure fallback methods (FIDO2 presence, simple presence) have been removed. Operations fail hard if proper verification cannot be achieved.
 
 ### Shell Integration
 
@@ -227,7 +219,7 @@ op account list  # Should trigger Touch ID
 
 **3. Install Enforcement System:**
 ```bash
-./scripts/yubikey-git-setup.sh setup
+./scripts/hardware-git-setup.sh setup
 ```
 
 Interactive setup process:
@@ -256,12 +248,12 @@ source ~/.bashrc
 
 **Test Verification:**
 ```bash
-./scripts/yubikey-git-setup.sh test
+./scripts/hardware-git-setup.sh test
 ```
 
 **Verify Status:**
 ```bash
-./scripts/yubikey-git-setup.sh status
+./scripts/hardware-git-setup.sh status
 ```
 
 Expected output:
@@ -306,7 +298,7 @@ git push origin main
 To install hooks in all workspace repositories:
 
 ```bash
-./scripts/yubikey-git-setup.sh setup --all-repos
+./scripts/hardware-git-setup.sh setup --all-repos
 ```
 
 This installs pre-push hooks in repositories listed in `configs/yubikey-enforcement.yml`:
@@ -325,11 +317,11 @@ This installs pre-push hooks in repositories listed in `configs/yubikey-enforcem
 
 | Task | Command | Description |
 |------|---------|-------------|
-| **Check Status** | `./scripts/yubikey-git-setup.sh status` | Show enforcement state and hardware availability |
-| **Test Verification** | `./scripts/yubikey-git-setup.sh test` | Test hardware verification (YubiKey or Touch ID) |
-| **Disable Enforcement** | `./scripts/yubikey-git-setup.sh disable` | Temporarily disable |
-| **Enable Enforcement** | `./scripts/yubikey-git-setup.sh enable` | Re-enable after disable |
-| **Remove System** | `./scripts/yubikey-git-setup.sh remove` | Complete uninstall |
+| **Check Status** | `./scripts/hardware-git-setup.sh status` | Show enforcement state and hardware availability |
+| **Test Verification** | `./scripts/hardware-git-setup.sh test` | Test hardware verification (YubiKey or Touch ID) |
+| **Disable Enforcement** | `./scripts/hardware-git-setup.sh disable` | Temporarily disable |
+| **Enable Enforcement** | `./scripts/hardware-git-setup.sh enable` | Re-enable after disable |
+| **Remove System** | `./scripts/hardware-git-setup.sh remove` | Complete uninstall |
 
 ### YubiKey OTP Management
 
@@ -344,13 +336,13 @@ This installs pre-push hooks in repositories listed in `configs/yubikey-enforcem
 **Temporarily Disable (Emergency):**
 ```bash
 # Keep configuration, just disable checks
-./scripts/yubikey-git-setup.sh disable
+./scripts/hardware-git-setup.sh disable
 
 # Work without tap requirement
 git push  # No tap required
 
 # Re-enable when ready
-./scripts/yubikey-git-setup.sh enable
+./scripts/hardware-git-setup.sh enable
 ```
 
 **Environment Variable Override:**
@@ -363,7 +355,7 @@ unset TOMB_YUBIKEY_ENABLED
 
 **Complete Removal:**
 ```bash
-./scripts/yubikey-git-setup.sh remove
+./scripts/hardware-git-setup.sh remove
 ```
 
 Creates timestamped backup in `~/.tomb-yubikey-backup/removal-TIMESTAMP/` containing:
@@ -424,7 +416,7 @@ op account list  # Should trigger Touch ID
 **"Verification failed in pre-push hook":**
 - Shell wrapper may have been bypassed
 - Hook provides secondary enforcement
-- Check status: `./scripts/yubikey-git-setup.sh status`
+- Check status: `./scripts/hardware-git-setup.sh status`
 - Verify wrappers installed: `grep "YubiKey" ~/.zshrc`
 
 **Wrapper Not Working After Setup:**
@@ -437,7 +429,7 @@ exit
 # Open new terminal
 
 # Verify installation
-./scripts/yubikey-git-setup.sh status
+./scripts/hardware-git-setup.sh status
 ```
 
 **Multiple YubiKey Serials:**
@@ -533,7 +525,7 @@ To enforce only OTP with touch, remove fallback methods from `main()` function.
 **Dry Run Setup:**
 ```bash
 # Setup with non-interactive mode
-./scripts/yubikey-git-setup.sh setup --non-interactive
+./scripts/hardware-git-setup.sh setup --non-interactive
 
 # Review changes before applying
 grep "YubiKey" ~/.zshrc
@@ -603,7 +595,7 @@ igris/
 │   ├── yubikey-verify.sh            # Core verification logic
 │   ├── git-yubikey-wrapper.sh       # Git command wrapper
 │   ├── gh-yubikey-wrapper.sh        # GitHub CLI wrapper
-│   ├── yubikey-git-setup.sh         # Management CLI
+│   ├── hardware-git-setup.sh         # Management CLI
 │   └── yubikey-configure-otp.sh     # YubiKey OTP configuration
 ├── hooks/
 │   └── git-hooks/
