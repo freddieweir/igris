@@ -170,6 +170,7 @@ ykman list
 **Option 2: Touch ID (Convenient Alternative - macOS only)**
 - macOS device with Touch ID sensor
 - 1Password CLI (`op`)
+- 1Password app with biometric unlock configured
 
 ```bash
 # macOS
@@ -178,9 +179,17 @@ brew install 1password-cli
 # Sign in to 1Password
 op signin
 
-# Verify biometric unlock is enabled
-op account list  # Should trigger Touch ID prompt
+# Configure 1Password app for Touch ID:
+# 1. Open 1Password app
+# 2. Settings → Security
+# 3. Enable "Unlock with Touch ID"
+# 4. Set "Auto-lock" to short duration (1-5 min recommended)
+
+# Verify biometric unlock works
+op item list  # Should trigger Touch ID prompt
 ```
+
+> **Important**: Touch ID security depends on 1Password app settings. For effective verification, enable "Require Touch ID" and set a short auto-lock timeout in 1Password preferences.
 
 **General Requirements:**
 - `git` (2.0+)

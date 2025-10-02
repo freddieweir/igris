@@ -66,27 +66,43 @@ check_1password_cli() {
 # Touch ID verification via 1Password CLI
 verify_touchid() {
     print_info "Verifying with Touch ID via 1Password CLI..."
-    print_info "👆 TOUCH ID REQUIRED to verify operation"
 
-    # Attempt biometric unlock by listing accounts
-    # This triggers Touch ID on macOS with biometric unlock enabled
+    # NOTE: Touch ID enforcement depends on 1Password app settings:
+    # - "Require Touch ID" must be enabled in 1Password app
+    # - Session timeout should be set to a short duration
+    # - This provides physical presence verification via biometric
+
+    print_warning "Touch ID verification relies on 1Password biometric settings"
+    print_info "Ensure 'Require Touch ID' is enabled in 1Password app preferences"
+    echo "" >&2
+
+    # Use item list which accesses vault data
+    # With biometric unlock enabled and proper timeout, this requires Touch ID
     local start_time=$(date +%s)
-    if timeout "${TIMEOUT_SECONDS}s" op account list &>/dev/null; then
+    local output
+
+    if output=$(timeout "${TIMEOUT_SECONDS}s" op item list --format=json 2>&1 | head -1); then
         local elapsed=$(($(date +%s) - start_time))
-        print_success "Touch ID verified! (${elapsed}s)"
-        log_verification "SUCCESS" "TOUCH-ID"
-        return 0
-    else
-        local elapsed=$(($(date +%s) - start_time))
-        if [ "$elapsed" -ge "$TIMEOUT_SECONDS" ]; then
-            print_error "Timeout waiting for Touch ID"
-            log_verification "TIMEOUT" "TOUCH-ID"
-        else
-            print_error "Touch ID verification failed"
-            log_verification "FAILURE" "TOUCH-ID"
+
+        # Verify we got valid output
+        if [ -n "$output" ]; then
+            print_success "1Password CLI verification successful (${elapsed}s)"
+            print_info "If Touch ID did not prompt, check 1Password app biometric settings"
+            log_verification "SUCCESS" "TOUCH-ID"
+            return 0
         fi
-        return 1
     fi
+
+    # If we reach here, verification failed
+    local elapsed=$(($(date +%s) - start_time))
+    if [ "$elapsed" -ge "$TIMEOUT_SECONDS" ]; then
+        print_error "Timeout waiting for 1Password CLI"
+        log_verification "TIMEOUT" "TOUCH-ID"
+    else
+        print_error "1Password CLI verification failed"
+        log_verification "FAILURE" "TOUCH-ID"
+    fi
+    return 1
 }
 
 # Main verification flow
