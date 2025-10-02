@@ -1,17 +1,17 @@
 #!/bin/bash
 
-# Git YubiKey Wrapper
-# Intercepts git commands and requires YubiKey verification for network operations
-# Part of tomb-of-nazarick security enforcement system
+# Git Hardware Verification Wrapper
+# Intercepts git commands and requires hardware verification for network operations
+# Part of Igris security enforcement system
 
 set -euo pipefail
 
 # Get the actual git binary (not this wrapper)
 GIT_BINARY="/usr/bin/git"
 TOMB_DIR="${TOMB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-VERIFY_SCRIPT="${TOMB_DIR}/scripts/yubikey-verify.sh"
+VERIFY_SCRIPT="${TOMB_DIR}/scripts/hardware-verify.sh"
 
-# Network operations that require YubiKey verification
+# Network operations that require hardware verification
 NETWORK_OPERATIONS=(
     "push"
     "pull"
@@ -66,14 +66,14 @@ main() {
 
     # Check if this is a network operation
     if is_network_operation "$git_command" "$@"; then
-        # Verify YubiKey before proceeding
+        # Verify hardware before proceeding
         if [ -x "$VERIFY_SCRIPT" ]; then
             if ! "$VERIFY_SCRIPT" "git $*"; then
-                echo "❌ YubiKey verification failed. Operation aborted." >&2
+                echo "❌ Hardware verification failed. Operation aborted." >&2
                 exit 1
             fi
         else
-            echo "⚠️  Warning: YubiKey verification script not found at: $VERIFY_SCRIPT" >&2
+            echo "⚠️  Warning: Hardware verification script not found at: $VERIFY_SCRIPT" >&2
             echo "⚠️  Proceeding without verification - this is a security risk!" >&2
         fi
     fi
