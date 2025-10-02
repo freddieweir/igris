@@ -1,23 +1,28 @@
 # Igris
 
-In 2025 and onward, **every** push/pull/pr should require a physical YubiKey tap or a passkey. Inspired by the September 2025 [Shai-Hulud npm breach](https://www.cisa.gov/news-events/alerts/2025/09/23/widespread-supply-chain-compromise-impacting-npm-ecosystem) where malware stole credentials and auto-published malicious code to 500+ packages.
+In 2025 and onward, **every** push/pull/pr should require physical hardware verification. Inspired by the September 2025 [Shai-Hulud npm breach](https://www.cisa.gov/news-events/alerts/2025/09/23/widespread-supply-chain-compromise-impacting-npm-ecosystem) where malware stole credentials and auto-published malicious code to 500+ packages.
 
 ## Overview
 
 **The Problem:** Stolen credentials let attackers push code silently. Even with SSH keys, tokens, and 2FA, compromised systems can modify your repos without you knowing.
 
-**The Solution:** Physical hardware verification. If a malicious actor is somehow able to physically tap your yubikey in person, you might have much more pressing matters to attend to.
+**The Solution:** Physical hardware verification. Require YubiKey tap or Touch ID for every git network operation. If a malicious actor can physically access your hardware, you have much more pressing matters to attend to.
+
+![Sto](https://github.com/user-attachments/assets/4ece2970-c744-4fa1-84fc-e901a73e89e6)
+
+_Naming scheme derived from Solo Leveling because I decided why not ([Image Source](https://solo-leveling.fandom.com/wiki/Shadow_Preservation?file=Sto.jpg))_
 
 ### What Igris Provides
 
-- **Physical Tap Enforcement** for git push, pull, fetch, clone, and GitHub CLI operations
+- **Hardware Verification Enforcement** - YubiKey tap OR Touch ID via 1Password CLI
 - **Defense-in-Depth Architecture** with multiple enforcement layers preventing bypass
+- **Flexible Authentication** - Use YubiKey (most secure) or Touch ID (convenient alternative)
 - **Cryptographic Verification** via HMAC-SHA1 challenge-response with touch requirement
 - **Auto-Revert Setup** ensuring no incomplete or misconfigured installations
 - **Comprehensive Audit Logging** for all verification attempts and failures
 - **Graceful Fallback** with security warnings when optimal verification unavailable
 
-**Operations Requiring YubiKey Tap:**
+**Operations Requiring Hardware Verification:**
 - `git push`, `git pull`, `git fetch`, `git clone`
 - `git remote add/update/set-url`, `git submodule update --remote`
 - `gh pr create/merge`, `gh release create`, `gh repo clone`, `gh workflow run`
@@ -74,26 +79,26 @@ Igris implements a defense-in-depth security model with three enforcement layers
 
 ### Verification Methods (Priority Order)
 
-1. **OTP with Required Touch** (SECURE)
+1. **YubiKey OTP with Required Touch** (MOST SECURE)
    - Cryptographic HMAC-SHA1 challenge-response
    - Touch flag enforced on YubiKey slot 2
    - Random 32-byte challenge per operation
    - Hardware-verified physical presence
+   - Preferred method for maximum security
 
-2. **OTP without Guaranteed Touch** (LESS SECURE)
-   - Fallback if slot not configured with --touch
-   - Still cryptographic but no guaranteed tap
-   - Warns user to reconfigure for security
+2. **Touch ID via 1Password CLI** (SECURE)
+   - Biometric authentication using macOS Secure Enclave
+   - Requires 1Password CLI with biometric unlock enabled
+   - Hardware-backed (Touch ID sensor)
+   - Excellent alternative when YubiKey unavailable
+   - macOS only
 
-3. **FIDO2 Presence Check** (INSECURE)
-   - Only verifies YubiKey is plugged in
-   - No tap requirement
-   - Loudly warns this provides minimal security
+3. **YubiKey OTP without Guaranteed Touch** (ACCEPTABLE)
+   - Used if slot not configured with --touch flag
+   - Still cryptographic verification
+   - Warns user to reconfigure for maximum security
 
-4. **Simple Presence** (INSECURE FALLBACK)
-   - Last resort verification
-   - Critical warnings displayed
-   - Only checks device connectivity
+**Note**: All insecure fallback methods (FIDO2 presence, simple presence) have been removed. Operations fail hard if proper verification cannot be achieved.
 
 ### Shell Integration
 
@@ -137,18 +142,12 @@ Wrappers intercept commands transparently while preserving all git/gh functional
 
 ### Prerequisites
 
-**Required:**
+**Hardware Verification (Choose One or Both):**
+
+**Option 1: YubiKey (Most Secure)**
 - YubiKey 4/5 series with OTP support
 - `ykman` (YubiKey Manager CLI)
-- `git` (2.0+)
-- Bash or Zsh shell
 
-**Platform Support:**
-- ✅ macOS (primary)
-- ✅ Linux (tested)
-- ❌ Windows (not yet supported)
-
-**Install YubiKey Manager:**
 ```bash
 # macOS
 brew install ykman
@@ -158,13 +157,44 @@ sudo apt install yubikey-manager
 
 # Linux (Fedora/RHEL)
 sudo dnf install yubikey-manager
-```
 
-**Verify Installation:**
-```bash
+# Verify installation
 ykman list
 # Should show: YubiKey 5C Nano (Serial: 12345678)
 ```
+
+**Option 2: Touch ID (Convenient Alternative - macOS only)**
+- macOS device with Touch ID sensor
+- 1Password CLI (`op`)
+- 1Password app with biometric unlock configured
+
+```bash
+# macOS
+brew install 1password-cli
+
+# Sign in to 1Password
+op signin
+
+# Configure 1Password app for Touch ID:
+# 1. Open 1Password app
+# 2. Settings → Security
+# 3. Enable "Unlock with Touch ID"
+# 4. Set "Auto-lock" to short duration (1-5 min recommended)
+
+# Verify biometric unlock works
+op item list  # Should trigger Touch ID prompt
+```
+
+> **Important**: Touch ID security depends on 1Password app settings. For effective verification, enable "Require Touch ID" and set a short auto-lock timeout in 1Password preferences.
+
+**General Requirements:**
+- `git` (2.0+)
+- Bash or Zsh shell
+
+**Platform Support:**
+- ✅ macOS (YubiKey + Touch ID)
+- ✅ Linux (YubiKey only)
+- ❌ Windows (not yet supported)
 
 ### Installation
 
@@ -174,23 +204,34 @@ git clone https://github.com/freddieweir/igris.git
 cd igris
 ```
 
-**2. Configure YubiKey OTP Slot 2:**
+**2. Configure Hardware Verification:**
+
+*If using YubiKey:*
 ```bash
 ./scripts/yubikey-configure-otp.sh configure
 ```
+This sets up HMAC-SHA1 challenge-response with required touch on slot 2.
 
-This sets up HMAC-SHA1 challenge-response with required touch on slot 2. You'll be prompted to test verification immediately.
+*If using Touch ID:*
+```bash
+# Ensure 1Password CLI is signed in
+op signin
+
+# Verify biometric unlock works
+op account list  # Should trigger Touch ID
+```
 
 **3. Install Enforcement System:**
 ```bash
-./scripts/yubikey-git-setup.sh setup
+./scripts/hardware-git-setup.sh setup
 ```
 
 Interactive setup process:
+- Detects available hardware (YubiKey and/or Touch ID)
 - Installs shell wrappers for git/gh commands
 - Configures global git hooks via template directory
 - Backs up existing shell configuration
-- **Requires YubiKey tap to complete** (proves physical access)
+- **Requires hardware verification to complete** (proves physical access)
 - Auto-reverts if verification fails
 
 **4. Reload Shell Configuration:**
@@ -211,18 +252,19 @@ source ~/.bashrc
 
 **Test Verification:**
 ```bash
-./scripts/yubikey-git-setup.sh test
+./scripts/hardware-git-setup.sh test
 ```
 
 **Verify Status:**
 ```bash
-./scripts/yubikey-git-setup.sh status
+./scripts/hardware-git-setup.sh status
 ```
 
 Expected output:
 ```
 Enforcement: ✅ ENABLED
 YubiKey:     ✅ Connected (YubiKey 5C Nano)
+Touch ID:    ✅ Available (via 1Password CLI)
 Wrappers:    ✅ Installed (git, gh)
 Hooks:       ✅ Configured (global template)
 ```
@@ -232,9 +274,9 @@ Hooks:       ✅ Configured (global template)
 git push origin main
 ```
 
-You'll see:
+**With YubiKey:**
 ```
-🔑 YubiKey verification required for: git push origin main
+🔑 Hardware verification required for: git push origin main
 ✅ YubiKey detected: Serial 12345678
 ℹ️  Verifying with OTP challenge-response (requires physical tap)...
 ℹ️  👆 TAP YOUR YUBIKEY NOW to verify (timeout: 10s)
@@ -244,12 +286,23 @@ You'll see:
 [push proceeds normally]
 ```
 
+**With Touch ID (no YubiKey connected):**
+```
+🔑 Hardware verification required for: git push origin main
+ℹ️  Verifying with Touch ID via 1Password CLI...
+ℹ️  👆 TOUCH ID REQUIRED to verify operation
+[Touch the Touch ID sensor]
+✅ Touch ID verified! (1s)
+✅ Verification successful! Proceeding with git push
+[push proceeds normally]
+```
+
 ### Optional: Multi-Repository Installation
 
 To install hooks in all workspace repositories:
 
 ```bash
-./scripts/yubikey-git-setup.sh setup --all-repos
+./scripts/hardware-git-setup.sh setup --all-repos
 ```
 
 This installs pre-push hooks in repositories listed in `configs/yubikey-enforcement.yml`:
@@ -268,11 +321,11 @@ This installs pre-push hooks in repositories listed in `configs/yubikey-enforcem
 
 | Task | Command | Description |
 |------|---------|-------------|
-| **Check Status** | `./scripts/yubikey-git-setup.sh status` | Show enforcement state |
-| **Test Verification** | `./scripts/yubikey-git-setup.sh test` | Test YubiKey tap |
-| **Disable Enforcement** | `./scripts/yubikey-git-setup.sh disable` | Temporarily disable |
-| **Enable Enforcement** | `./scripts/yubikey-git-setup.sh enable` | Re-enable after disable |
-| **Remove System** | `./scripts/yubikey-git-setup.sh remove` | Complete uninstall |
+| **Check Status** | `./scripts/hardware-git-setup.sh status` | Show enforcement state and hardware availability |
+| **Test Verification** | `./scripts/hardware-git-setup.sh test` | Test hardware verification (YubiKey or Touch ID) |
+| **Disable Enforcement** | `./scripts/hardware-git-setup.sh disable` | Temporarily disable |
+| **Enable Enforcement** | `./scripts/hardware-git-setup.sh enable` | Re-enable after disable |
+| **Remove System** | `./scripts/hardware-git-setup.sh remove` | Complete uninstall |
 
 ### YubiKey OTP Management
 
@@ -287,13 +340,13 @@ This installs pre-push hooks in repositories listed in `configs/yubikey-enforcem
 **Temporarily Disable (Emergency):**
 ```bash
 # Keep configuration, just disable checks
-./scripts/yubikey-git-setup.sh disable
+./scripts/hardware-git-setup.sh disable
 
 # Work without tap requirement
 git push  # No tap required
 
 # Re-enable when ready
-./scripts/yubikey-git-setup.sh enable
+./scripts/hardware-git-setup.sh enable
 ```
 
 **Environment Variable Override:**
@@ -306,7 +359,7 @@ unset TOMB_YUBIKEY_ENABLED
 
 **Complete Removal:**
 ```bash
-./scripts/yubikey-git-setup.sh remove
+./scripts/hardware-git-setup.sh remove
 ```
 
 Creates timestamped backup in `~/.tomb-yubikey-backup/removal-TIMESTAMP/` containing:
@@ -341,10 +394,33 @@ ykman list
 - Ensure good finger contact with touch sensor
 - Try tapping more firmly
 
+**"1Password CLI not signed in":**
+```bash
+# Sign in to 1Password
+op signin
+
+# Verify biometric unlock is enabled
+op account list  # Should trigger Touch ID
+
+# Check 1Password app settings for biometric unlock
+```
+
+**"Touch ID verification failed":**
+- Ensure Touch ID is enabled in System Settings
+- Check 1Password CLI biometric unlock is enabled in 1Password app
+- Try: `op signin` to refresh authentication
+- Verify Touch ID sensor is working: System Settings → Touch ID & Password
+
+**"Timeout waiting for Touch ID":**
+- Touch ID has 10-second timeout
+- Ensure finger is clean and dry
+- Try different finger if enrolled with multiple
+- Check System Settings for Touch ID configuration
+
 **"Verification failed in pre-push hook":**
 - Shell wrapper may have been bypassed
 - Hook provides secondary enforcement
-- Check status: `./scripts/yubikey-git-setup.sh status`
+- Check status: `./scripts/hardware-git-setup.sh status`
 - Verify wrappers installed: `grep "YubiKey" ~/.zshrc`
 
 **Wrapper Not Working After Setup:**
@@ -357,7 +433,7 @@ exit
 # Open new terminal
 
 # Verify installation
-./scripts/yubikey-git-setup.sh status
+./scripts/hardware-git-setup.sh status
 ```
 
 **Multiple YubiKey Serials:**
@@ -453,7 +529,7 @@ To enforce only OTP with touch, remove fallback methods from `main()` function.
 **Dry Run Setup:**
 ```bash
 # Setup with non-interactive mode
-./scripts/yubikey-git-setup.sh setup --non-interactive
+./scripts/hardware-git-setup.sh setup --non-interactive
 
 # Review changes before applying
 grep "YubiKey" ~/.zshrc
@@ -523,7 +599,7 @@ igris/
 │   ├── yubikey-verify.sh            # Core verification logic
 │   ├── git-yubikey-wrapper.sh       # Git command wrapper
 │   ├── gh-yubikey-wrapper.sh        # GitHub CLI wrapper
-│   ├── yubikey-git-setup.sh         # Management CLI
+│   ├── hardware-git-setup.sh         # Management CLI
 │   └── yubikey-configure-otp.sh     # YubiKey OTP configuration
 ├── hooks/
 │   └── git-hooks/
