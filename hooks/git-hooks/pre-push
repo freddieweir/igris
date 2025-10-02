@@ -1,14 +1,14 @@
 #!/bin/bash
 
-# Pre-push Git Hook - YubiKey Verification
-# Installed by tomb-of-nazarick yubikey-git-setup
-# Requires physical YubiKey tap before pushing to remote
+# Pre-push Git Hook - Hardware Verification
+# Installed by Igris yubikey-git-setup
+# Requires physical hardware verification before pushing to remote
 
 set -euo pipefail
 
-# Locate tomb-of-nazarick directory
-TOMB_DIR="${TOMB_DIR:-/Users/fweir/git/internal/repos/tomb-of-nazarick}"
-VERIFY_SCRIPT="${TOMB_DIR}/scripts/yubikey-verify.sh"
+# Locate Igris directory
+TOMB_DIR="${TOMB_DIR:-/Users/fweir/git/internal/repos/igris}"
+VERIFY_SCRIPT="${TOMB_DIR}/scripts/hardware-verify.sh"
 
 # Color output
 RED='\033[0;31m'
@@ -17,9 +17,9 @@ NC='\033[0m'
 
 # Check if verification script exists
 if [ ! -x "$VERIFY_SCRIPT" ]; then
-    echo -e "${YELLOW}⚠️  YubiKey verification script not found at: $VERIFY_SCRIPT${NC}" >&2
-    echo -e "${YELLOW}⚠️  Pre-push hook cannot enforce YubiKey requirement${NC}" >&2
-    echo -e "${YELLOW}⚠️  This is a security risk! Please run: fortify yubikey setup${NC}" >&2
+    echo -e "${YELLOW}⚠️  Hardware verification script not found at: $VERIFY_SCRIPT${NC}" >&2
+    echo -e "${YELLOW}⚠️  Pre-push hook cannot enforce hardware requirement${NC}" >&2
+    echo -e "${YELLOW}⚠️  This is a security risk! Please run setup again${NC}" >&2
     exit 0  # Don't block push if script is missing (for now)
 fi
 
@@ -28,9 +28,9 @@ while read local_ref local_sha remote_ref remote_sha; do
     # Build a descriptive operation string
     OPERATION="git push (${remote_ref##refs/heads/} -> remote)"
 
-    # Verify YubiKey
+    # Verify hardware
     if ! "$VERIFY_SCRIPT" "$OPERATION"; then
-        echo -e "${RED}❌ YubiKey verification failed in pre-push hook${NC}" >&2
+        echo -e "${RED}❌ Hardware verification failed in pre-push hook${NC}" >&2
         echo -e "${RED}❌ Push aborted for security${NC}" >&2
         exit 1
     fi

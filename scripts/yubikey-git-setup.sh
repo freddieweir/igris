@@ -375,7 +375,8 @@ EOF
     # Verify hardware access
     echo ""
     print_info "Testing hardware verification..."
-    if ! "$VERIFY_SCRIPT" "setup-verification"; then
+    HARDWARE_VERIFY="${TOMB_DIR}/scripts/hardware-verify.sh"
+    if ! "$HARDWARE_VERIFY" "setup-verification"; then
         echo ""
         print_error "Hardware verification failed!"
         print_error "This could mean:"
@@ -592,23 +593,24 @@ cmd_status() {
 
 # Test command
 cmd_test() {
-    print_header "Testing YubiKey Verification"
+    print_header "Testing Hardware Verification"
 
-    if [ ! -x "$VERIFY_SCRIPT" ]; then
-        print_error "Verification script not found: $VERIFY_SCRIPT"
+    HARDWARE_VERIFY="${TOMB_DIR}/scripts/hardware-verify.sh"
+    if [ ! -x "$HARDWARE_VERIFY" ]; then
+        print_error "Verification script not found: $HARDWARE_VERIFY"
         exit 1
     fi
 
     print_info "Running verification test..."
     echo ""
 
-    if "$VERIFY_SCRIPT" "test-operation"; then
+    if "$HARDWARE_VERIFY" "test-operation"; then
         echo ""
-        print_success "YubiKey verification test PASSED"
+        print_success "Hardware verification test PASSED"
         return 0
     else
         echo ""
-        print_error "YubiKey verification test FAILED"
+        print_error "Hardware verification test FAILED"
         return 1
     fi
 }
