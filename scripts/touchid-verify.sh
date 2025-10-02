@@ -81,8 +81,13 @@ verify_touchid() {
     local start_time=$(date +%s)
     local output
 
-    if output=$(timeout "${TIMEOUT_SECONDS}s" op item list --format=json 2>&1 | head -1); then
+    # Use || true to ignore SIGPIPE from head -1 closing the pipe
+    output=$(timeout "${TIMEOUT_SECONDS}s" op item list --format=json 2>&1 | head -1 || true)
+    if [ $? -eq 0 ] || [ $? -eq 141 ]; then  # 141 = SIGPIPE from head closing pipe
         local elapsed=$(($(date +%s) - start_time))
+
+        # Debug: show what we got
+        # echo "DEBUG: output='$output', length=${#output}" >&2
 
         # Verify we got valid output
         if [ -n "$output" ]; then
@@ -90,7 +95,11 @@ verify_touchid() {
             print_info "If Touch ID did not prompt, check 1Password app biometric settings"
             log_verification "SUCCESS" "TOUCH-ID"
             return 0
+        else
+            print_error "Output was empty from 1Password CLI"
         fi
+    else
+        print_error "Command failed with exit code: $?"
     fi
 
     # If we reach here, verification failed
