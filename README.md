@@ -1,12 +1,12 @@
 # Igris
 
-Hardware-enforced git operation security with defense-in-depth architecture requiring physical YubiKey tap for all network operations.
+In 2025 and onward, **every** push/pull/pr should require a physical YubiKey tap or a passkey. Inspired by the September 2025 [Shai-Hulud npm breach](https://www.cisa.gov/news-events/alerts/2025/09/23/widespread-supply-chain-compromise-impacting-npm-ecosystem) where malware stole credentials and auto-published malicious code to 500+ packages.
 
 ## Overview
 
-Igris is a comprehensive security system that prevents compromised systems or malicious code from performing git operations without explicit hardware authorization. It implements multi-layer enforcement through shell wrappers, git hooks, and cryptographic challenge-response verification.
+**The Problem:** Stolen credentials let attackers push code silently. Even with SSH keys, tokens, and 2FA, compromised systems can modify your repos without you knowing.
 
-**Core Principle:** Every network operation requires physical presence. No malicious code, no compromised process, no automated system can perform git network operations without you physically tapping your YubiKey.
+**The Solution:** Physical hardware verification. If a malicious actor is somehow able to physically tap your yubikey in person, you might have much more pressing matters to attend to.
 
 ### What Igris Provides
 
@@ -389,130 +389,6 @@ grep "FAILURE\|TIMEOUT" ~/.tomb-yubikey-verifications.log
 2025-10-01T14:25:12+0000 [TIMEOUT] git push - OTP-TOUCH - Serial: 12345678
 2025-10-01T14:26:03+0000 [FAILURE] git fetch - no_device - Serial: n/a
 ```
-
-</details>
-
-<details>
-<summary><strong>🔐 Security Model</strong></summary>
-
-## Security Architecture
-
-### What Igris Protects Against
-
-✅ **Compromised Development Machines**
-- Malware cannot push malicious code without physical YubiKey
-- Ransomware cannot exfiltrate code via git without tap
-
-✅ **Automated Malicious Scripts**
-- CI/CD compromise cannot push from your machine
-- Supply chain attacks blocked at git operation level
-
-✅ **Unauthorized Code Pushes**
-- Prevents unauthorized commits from your account
-- Requires physical presence for every network operation
-
-✅ **Social Engineering Attacks**
-- Remote attackers cannot perform git operations
-- Requires physical hardware access
-
-✅ **Credential Theft**
-- Even with stolen SSH keys or tokens, push requires tap
-- Physical YubiKey becomes second factor for git operations
-
-### What Igris Does NOT Protect Against
-
-❌ **Physical Theft of YubiKey**
-- Use YubiKey with PIN protection
-- Enable biometric locks where available
-- Have backup YubiKey in secure location
-
-❌ **Attacks After Tap**
-- Tap authorizes specific operation only
-- Operation proceeds as normal git push
-- Cannot be used to authorize multiple operations
-
-❌ **YubiKey Firmware Vulnerabilities**
-- Relies on Yubico's security implementation
-- Keep YubiKey firmware updated
-
-❌ **Read-Only Operations**
-- `git pull`, `git fetch` still require tap (configurable)
-- Read operations don't need protection by design
-- Can be disabled in configuration if desired
-
-### Threat Model
-
-**Assumed Attacker Capabilities:**
-- Full control of development machine
-- Ability to execute arbitrary code
-- Access to git credentials (SSH keys, tokens)
-- Ability to modify git configuration
-- Cannot physically access YubiKey
-
-**Defense Strategy:**
-1. **Wrapper Layer** stops normal attack attempts
-2. **Hook Layer** stops sophisticated bypasses
-3. **Logging** detects repeated bypass attempts
-4. **Alerts** notify user of potential attacks
-
-### Configuration Security
-
-**Master Configuration:** `configs/yubikey-enforcement.yml`
-
-```yaml
-enforcement:
-  enabled: true                # Master switch
-  require_tap: true            # Enforce physical tap
-  timeout_seconds: 10          # Tap timeout
-  retry_attempts: 3            # Before alert
-
-operations:
-  git:
-    push: required             # Require tap
-    pull: required             # Require tap
-    fetch: required            # Require tap
-    clone: required            # Require tap
-    remote_add: optional       # May not need tap
-    submodule_update: required # Require tap
-
-  gh:
-    pr_create: required        # Require tap
-    pr_merge: required         # Require tap
-    release_create: required   # Require tap
-    repo_clone: required       # Require tap
-    issue_create: optional     # Lower security need
-    workflow_run: required     # Require tap
-
-security:
-  alert_on_bypass_attempt: true
-  log_file: ~/.tomb-yubikey-verifications.log
-  max_failed_attempts: 5       # Before alerting
-
-devices:
-  allowed_serials:
-    - 30945664                 # Primary YubiKey
-  require_specific_device: false
-```
-
-**Per-Operation Control:**
-- `required` - Must tap for operation
-- `optional` - Tap recommended but not enforced
-- `disabled` - No tap required
-
-### Audit Trail
-
-All verification attempts logged with:
-- ISO 8601 timestamp
-- Status (SUCCESS/FAILURE/TIMEOUT/BYPASSED)
-- Method used (OTP-TOUCH/OTP/FIDO2-PRESENCE-ONLY/PRESENCE)
-- YubiKey serial number
-- Operation context (e.g., "git push origin main")
-
-**Security Monitoring:**
-- Tracks failed verification attempts
-- Sends macOS notification after 5 failures
-- Logs bypass attempts when enforcement disabled
-- Monitors for repeated timeouts (potential attack)
 
 </details>
 
