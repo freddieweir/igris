@@ -226,42 +226,29 @@ main() {
     print_success "YubiKey detected: Serial ${YUBIKEY_SERIAL}"
 
     # Try verification methods in priority order (most secure first)
-    # 1. OTP with required physical touch (SECURE)
+    # 1. OTP with required physical touch (SECURE - REQUIRED)
     if verify_otp_touch; then
         print_success "✅ Verification successful! Proceeding with ${OPERATION}"
         exit 0
     fi
 
-    print_warning "OTP touch verification not available, trying fallback methods..."
-
-    # 2. OTP without guaranteed touch (LESS SECURE)
+    # 2. OTP without guaranteed touch (LESS SECURE but acceptable)
+    print_warning "OTP touch verification not available, trying OTP without touch..."
     if verify_otp; then
         print_warning "⚠️  Used OTP without guaranteed touch - consider configuring slot 2 with --touch"
         print_success "Verification successful! Proceeding with ${OPERATION}"
         exit 0
     fi
 
-    # 3. FIDO2 presence only (NO TAP REQUIRED - INSECURE)
-    print_warning "No secure verification methods available..."
-    if verify_fido2_presence_only; then
-        print_warning "⚠️  WARNING: No tap verification performed!"
-        print_warning "⚠️  Configure OTP slot 2 for real security: ykman otp chalresp --generate --touch 2"
-        print_success "Proceeding with ${OPERATION} (INSECURE MODE)"
-        exit 0
-    fi
-
-    # 4. Simple presence (MOST INSECURE)
-    print_warning "Falling back to simple presence check..."
-    if verify_presence; then
-        print_warning "⚠️  CRITICAL: This provides NO real security!"
-        print_warning "⚠️  Configure OTP immediately: ykman otp chalresp --generate --touch 2"
-        print_success "Proceeding with ${OPERATION} (INSECURE MODE)"
-        exit 0
-    fi
-
-    # All methods failed
-    print_error "All verification methods failed"
-    log_verification "FAILURE" "all_methods" "$YUBIKEY_SERIAL"
+    # OTP verification failed - this is a hard failure
+    print_error "YubiKey OTP verification failed!"
+    print_error "YubiKey is connected but not properly configured"
+    echo "" >&2
+    print_info "Required configuration:" >&2
+    echo "  1. Configure OTP slot 2: ${TOMB_DIR}/scripts/yubikey-configure-otp.sh configure" >&2
+    echo "  2. Ensure tap within timeout (${TIMEOUT_SECONDS}s)" >&2
+    echo "  3. Check YubiKey firmware supports OTP" >&2
+    log_verification "FAILURE" "otp_not_configured" "$YUBIKEY_SERIAL"
 
     # Check for repeated failures (potential attack)
     local recent_failures=$(grep -c "\[FAILURE\]\|\[TIMEOUT\]" "$LOG_FILE" 2>/dev/null || echo "0")
