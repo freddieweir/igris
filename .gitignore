@@ -22,3 +22,6 @@ configs/yubikey-enforcement.yml.local
 # Test files
 test/
 tmp/
+
+# Private development planning (OPSEC - keep internal strategies private)
+todos/
