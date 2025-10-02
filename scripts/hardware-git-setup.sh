@@ -147,17 +147,45 @@ confirm_action() {
 # Check prerequisites
 check_prerequisites() {
     local missing=0
+    local has_yubikey=false
+    local has_touchid=false
 
-    if ! command -v ykman &> /dev/null; then
-        print_error "ykman not found. Install with: brew install ykman"
+    # Check for YubiKey
+    if command -v ykman &> /dev/null; then
+        if ykman list 2>/dev/null | grep -q "YubiKey"; then
+            print_success "YubiKey detected"
+            has_yubikey=true
+        fi
+    fi
+
+    # Check for 1Password CLI (Touch ID alternative)
+    if command -v op &> /dev/null; then
+        if op account list &>/dev/null; then
+            print_success "1Password CLI available (Touch ID enabled)"
+            has_touchid=true
+        else
+            print_warning "1Password CLI found but not signed in"
+            print_info "Sign in with: op signin"
+        fi
+    fi
+
+    # Must have at least one hardware verification method
+    if [ "$has_yubikey" = false ] && [ "$has_touchid" = false ]; then
+        print_error "No hardware verification method available!"
+        echo ""
+        echo "Please install at least one of:"
+        echo "  Option 1: YubiKey (hardware token - most secure)"
+        echo "    • Install ykman: brew install ykman"
+        echo "    • Connect your YubiKey"
+        echo ""
+        echo "  Option 2: Touch ID via 1Password CLI (biometric)"
+        echo "    • Install 1Password CLI: brew install 1password-cli"
+        echo "    • Sign in: op signin"
+        echo ""
         missing=1
     fi
 
-    if ! ykman list 2>/dev/null | grep -q "YubiKey"; then
-        print_warning "No YubiKey detected. Please connect your YubiKey."
-        missing=1
-    fi
-
+    # Check for git
     if ! command -v git &> /dev/null; then
         print_error "git not found"
         missing=1
@@ -212,10 +240,10 @@ cmd_setup() {
     # Interactive welcome
     if [ "$interactive" = true ]; then
         echo "This setup will:"
-        echo "  • Install YubiKey verification scripts"
+        echo "  • Install hardware verification scripts"
         echo "  • Add git/gh command wrappers to your shell config"
         echo "  • Configure git hooks for all repositories"
-        echo "  • Enable enforcement requiring physical YubiKey tap for network operations"
+        echo "  • Enable enforcement requiring physical verification (YubiKey or Touch ID)"
         echo ""
 
         if ! confirm_action "Do you want to proceed with setup?" "yes"; then
@@ -271,7 +299,7 @@ cmd_setup() {
 
 # YubiKey Git Enforcement (managed by tomb-of-nazarick)
 # Added on: $(date +%Y-%m-%d)
-# DO NOT EDIT - Use 'yubikey-git-setup.sh' commands to manage
+# DO NOT EDIT - Use 'hardware-git-setup.sh' commands to manage
 
 export TOMB_DIR="$TOMB_DIR"
 export TOMB_YUBIKEY_ENABLED=true
@@ -328,32 +356,34 @@ EOF
         fi
     fi
 
-    # CRITICAL: YubiKey tap verification (proves physical access)
+    # CRITICAL: Hardware verification (proves physical access)
     print_header "Security Verification"
-    echo "To ensure you have physical access to your YubiKey,"
-    echo "you must tap it now to complete setup."
+    echo "To ensure you have physical access to your hardware,"
+    echo "you must complete verification now (YubiKey tap or Touch ID)."
     echo ""
     print_warning "If this fails, setup will be automatically reverted!"
     echo ""
 
     if [ "$interactive" = true ]; then
-        if ! confirm_action "Ready to verify YubiKey?" "yes"; then
+        if ! confirm_action "Ready to verify hardware access?" "yes"; then
             print_warning "Setup verification cancelled - reverting installation..."
             cmd_remove --non-interactive --force
             exit 1
         fi
     fi
 
-    # Verify YubiKey tap
+    # Verify hardware access
     echo ""
-    print_info "Testing YubiKey verification..."
-    if ! "$VERIFY_SCRIPT" "setup-verification"; then
+    print_info "Testing hardware verification..."
+    HARDWARE_VERIFY="${TOMB_DIR}/scripts/hardware-verify.sh"
+    if ! "$HARDWARE_VERIFY" "setup-verification"; then
         echo ""
-        print_error "YubiKey verification failed!"
+        print_error "Hardware verification failed!"
         print_error "This could mean:"
         echo "  • YubiKey not configured (run: $TOMB_DIR/scripts/yubikey-configure-otp.sh)"
         echo "  • YubiKey not connected"
-        echo "  • Tap timeout (you must tap within ${YUBIKEY_TIMEOUT:-10} seconds)"
+        echo "  • 1Password CLI not signed in (run: op signin)"
+        echo "  • Touch ID timeout or cancelled"
         echo ""
         print_warning "Automatically reverting installation for security..."
         cmd_remove --non-interactive --force
@@ -365,7 +395,7 @@ EOF
 
     # Verification successful!
     echo ""
-    print_success "YubiKey verification successful!"
+    print_success "Hardware verification successful!"
 
     # Show completion
     print_header "Setup Complete!"
@@ -506,12 +536,23 @@ cmd_status() {
     fi
 
     # Check YubiKey
-    if ykman list 2>/dev/null | grep -q "YubiKey"; then
+    if command -v ykman &>/dev/null && ykman list 2>/dev/null | grep -q "YubiKey"; then
         local yubikey_info=$(ykman list 2>/dev/null)
         echo -e "YubiKey:     ${GREEN}✅ Connected${NC}"
         echo "             $yubikey_info"
     else
         echo -e "YubiKey:     ${RED}❌ Not detected${NC}"
+    fi
+
+    # Check Touch ID (via 1Password CLI)
+    if command -v op &>/dev/null; then
+        if op account list &>/dev/null 2>&1; then
+            echo -e "Touch ID:    ${GREEN}✅ Available${NC} (via 1Password CLI)"
+        else
+            echo -e "Touch ID:    ${YELLOW}⚠️  1Password CLI not signed in${NC}"
+        fi
+    else
+        echo -e "Touch ID:    ${RED}❌ 1Password CLI not installed${NC}"
     fi
 
     # Check wrappers
@@ -552,23 +593,24 @@ cmd_status() {
 
 # Test command
 cmd_test() {
-    print_header "Testing YubiKey Verification"
+    print_header "Testing Hardware Verification"
 
-    if [ ! -x "$VERIFY_SCRIPT" ]; then
-        print_error "Verification script not found: $VERIFY_SCRIPT"
+    HARDWARE_VERIFY="${TOMB_DIR}/scripts/hardware-verify.sh"
+    if [ ! -x "$HARDWARE_VERIFY" ]; then
+        print_error "Verification script not found: $HARDWARE_VERIFY"
         exit 1
     fi
 
     print_info "Running verification test..."
     echo ""
 
-    if "$VERIFY_SCRIPT" "test-operation"; then
+    if "$HARDWARE_VERIFY" "test-operation"; then
         echo ""
-        print_success "YubiKey verification test PASSED"
+        print_success "Hardware verification test PASSED"
         return 0
     else
         echo ""
-        print_error "YubiKey verification test FAILED"
+        print_error "Hardware verification test FAILED"
         return 1
     fi
 }

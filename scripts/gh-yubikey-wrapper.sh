@@ -1,15 +1,15 @@
 #!/bin/bash
 
-# GitHub CLI YubiKey Wrapper
-# Intercepts gh commands and requires YubiKey verification for state-changing operations
-# Part of tomb-of-nazarick security enforcement system
+# GitHub CLI Hardware Verification Wrapper
+# Intercepts gh commands and requires hardware verification for state-changing operations
+# Part of Igris security enforcement system
 
 set -euo pipefail
 
 # Get the actual gh binary (not this wrapper)
 GH_BINARY="/usr/local/bin/gh"
 TOMB_DIR="${TOMB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-VERIFY_SCRIPT="${TOMB_DIR}/scripts/yubikey-verify.sh"
+VERIFY_SCRIPT="${TOMB_DIR}/scripts/hardware-verify.sh"
 
 # Check if this is a state-changing operation
 requires_verification() {
@@ -90,14 +90,14 @@ main() {
 
     # Check if this requires verification
     if requires_verification "$gh_resource" "$gh_action"; then
-        # Verify YubiKey before proceeding
+        # Verify hardware before proceeding
         if [ -x "$VERIFY_SCRIPT" ]; then
             if ! "$VERIFY_SCRIPT" "gh $*"; then
-                echo "❌ YubiKey verification failed. Operation aborted." >&2
+                echo "❌ Hardware verification failed. Operation aborted." >&2
                 exit 1
             fi
         else
-            echo "⚠️  Warning: YubiKey verification script not found at: $VERIFY_SCRIPT" >&2
+            echo "⚠️  Warning: Hardware verification script not found at: $VERIFY_SCRIPT" >&2
             echo "⚠️  Proceeding without verification - this is a security risk!" >&2
         fi
     fi

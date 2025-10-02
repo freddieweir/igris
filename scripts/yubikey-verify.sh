@@ -28,7 +28,17 @@ log_verification() {
     local method="$2"
     local serial="${3:-unknown}"
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S%z")
-    echo "${timestamp} [${status}] ${OPERATION} - ${method} - Serial: ${serial}" >> "$LOG_FILE"
+
+    # Mask serial in logs unless debug mode
+    if [ "${TOMB_DEBUG:-false}" = "true" ]; then
+        echo "${timestamp} [${status}] ${OPERATION} - ${method} - Serial: ${serial}" >> "$LOG_FILE"
+    else
+        local masked_serial="${serial}"
+        if [ "$serial" != "unknown" ] && [ "$serial" != "n/a" ]; then
+            masked_serial="******${serial: -2}"
+        fi
+        echo "${timestamp} [${status}] ${OPERATION} - ${method} - Serial: ${masked_serial}" >> "$LOG_FILE"
+    fi
 }
 
 # Print with color
@@ -129,26 +139,9 @@ verify_otp_touch() {
     fi
 }
 
-# Legacy FIDO2 presence check (not secure - doesn't require tap)
-verify_fido2_presence_only() {
-    print_warning "Using FIDO2 presence check (does NOT require tap)"
-    print_warning "This is insecure - configure OTP slot 2 for proper security"
-
-    # Check if FIDO2 is available
-    if ! ykman fido info &>/dev/null; then
-        print_warning "FIDO2 not available on this YubiKey"
-        return 1
-    fi
-
-    # Just check if device responds (NO TAP REQUIRED - INSECURE)
-    if ykman fido info &>/dev/null; then
-        print_warning "YubiKey detected (no tap verification)"
-        log_verification "SUCCESS" "FIDO2-PRESENCE-ONLY" "$YUBIKEY_SERIAL"
-        return 0
-    else
-        return 1
-    fi
-}
+# REMOVED: Legacy FIDO2 presence check
+# This was insecure (no tap required) and has been removed
+# YubiKey verification now requires OTP configuration
 
 # OTP Challenge-Response verification (fallback)
 verify_otp() {
@@ -185,22 +178,9 @@ verify_otp() {
     fi
 }
 
-# Simple presence check (minimal security fallback)
-verify_presence() {
-    print_warning "Using minimal presence check (lowest security)"
-    print_warning "Consider configuring FIDO2 or OTP for stronger security"
-
-    # Just verify YubiKey is still connected
-    if ykman list 2>/dev/null | grep -q "YubiKey"; then
-        print_success "YubiKey presence confirmed"
-        log_verification "SUCCESS" "PRESENCE" "$YUBIKEY_SERIAL"
-        return 0
-    else
-        print_error "YubiKey no longer detected"
-        log_verification "FAILURE" "PRESENCE" "$YUBIKEY_SERIAL"
-        return 1
-    fi
-}
+# REMOVED: Simple presence check
+# This was insecure (no verification) and has been removed
+# YubiKey verification now requires OTP configuration
 
 # Main verification flow
 main() {
@@ -223,45 +203,37 @@ main() {
         exit 1
     fi
 
-    print_success "YubiKey detected: Serial ${YUBIKEY_SERIAL}"
+    # Mask serial number unless debug mode enabled
+    if [ "${TOMB_DEBUG:-false}" = "true" ]; then
+        print_success "YubiKey detected: Serial ${YUBIKEY_SERIAL}"
+    else
+        print_success "YubiKey detected: Serial ******${YUBIKEY_SERIAL: -2}"
+    fi
 
     # Try verification methods in priority order (most secure first)
-    # 1. OTP with required physical touch (SECURE)
+    # 1. OTP with required physical touch (SECURE - REQUIRED)
     if verify_otp_touch; then
         print_success "✅ Verification successful! Proceeding with ${OPERATION}"
         exit 0
     fi
 
-    print_warning "OTP touch verification not available, trying fallback methods..."
-
-    # 2. OTP without guaranteed touch (LESS SECURE)
+    # 2. OTP without guaranteed touch (LESS SECURE but acceptable)
+    print_warning "OTP touch verification not available, trying OTP without touch..."
     if verify_otp; then
         print_warning "⚠️  Used OTP without guaranteed touch - consider configuring slot 2 with --touch"
         print_success "Verification successful! Proceeding with ${OPERATION}"
         exit 0
     fi
 
-    # 3. FIDO2 presence only (NO TAP REQUIRED - INSECURE)
-    print_warning "No secure verification methods available..."
-    if verify_fido2_presence_only; then
-        print_warning "⚠️  WARNING: No tap verification performed!"
-        print_warning "⚠️  Configure OTP slot 2 for real security: ykman otp chalresp --generate --touch 2"
-        print_success "Proceeding with ${OPERATION} (INSECURE MODE)"
-        exit 0
-    fi
-
-    # 4. Simple presence (MOST INSECURE)
-    print_warning "Falling back to simple presence check..."
-    if verify_presence; then
-        print_warning "⚠️  CRITICAL: This provides NO real security!"
-        print_warning "⚠️  Configure OTP immediately: ykman otp chalresp --generate --touch 2"
-        print_success "Proceeding with ${OPERATION} (INSECURE MODE)"
-        exit 0
-    fi
-
-    # All methods failed
-    print_error "All verification methods failed"
-    log_verification "FAILURE" "all_methods" "$YUBIKEY_SERIAL"
+    # OTP verification failed - this is a hard failure
+    print_error "YubiKey OTP verification failed!"
+    print_error "YubiKey is connected but not properly configured"
+    echo "" >&2
+    print_info "Required configuration:" >&2
+    echo "  1. Configure OTP slot 2: ${TOMB_DIR}/scripts/yubikey-configure-otp.sh configure" >&2
+    echo "  2. Ensure tap within timeout (${TIMEOUT_SECONDS}s)" >&2
+    echo "  3. Check YubiKey firmware supports OTP" >&2
+    log_verification "FAILURE" "otp_not_configured" "$YUBIKEY_SERIAL"
 
     # Check for repeated failures (potential attack)
     local recent_failures=$(grep -c "\[FAILURE\]\|\[TIMEOUT\]" "$LOG_FILE" 2>/dev/null || echo "0")
