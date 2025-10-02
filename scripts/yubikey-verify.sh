@@ -35,7 +35,7 @@ log_verification() {
     else
         local masked_serial="${serial}"
         if [ "$serial" != "unknown" ] && [ "$serial" != "n/a" ]; then
-            masked_serial="****${serial: -4}"
+            masked_serial="******${serial: -2}"
         fi
         echo "${timestamp} [${status}] ${OPERATION} - ${method} - Serial: ${masked_serial}" >> "$LOG_FILE"
     fi
@@ -207,7 +207,7 @@ main() {
     if [ "${TOMB_DEBUG:-false}" = "true" ]; then
         print_success "YubiKey detected: Serial ${YUBIKEY_SERIAL}"
     else
-        print_success "YubiKey detected: Serial ****${YUBIKEY_SERIAL: -4}"
+        print_success "YubiKey detected: Serial ******${YUBIKEY_SERIAL: -2}"
     fi
 
     # Try verification methods in priority order (most secure first)
