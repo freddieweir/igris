@@ -299,7 +299,7 @@ cmd_setup() {
 
 # YubiKey Git Enforcement (managed by tomb-of-nazarick)
 # Added on: $(date +%Y-%m-%d)
-# DO NOT EDIT - Use 'yubikey-git-setup.sh' commands to manage
+# DO NOT EDIT - Use 'hardware-git-setup.sh' commands to manage
 
 export TOMB_DIR="$TOMB_DIR"
 export TOMB_YUBIKEY_ENABLED=true

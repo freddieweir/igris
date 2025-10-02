@@ -111,7 +111,7 @@ main() {
     echo "  1. Connect your YubiKey and try again" >&2
     echo "  2. Ensure 1Password CLI is signed in: op signin" >&2
     echo "  3. Temporarily disable: export TOMB_YUBIKEY_ENABLED=false" >&2
-    echo "  4. Check status: ${TOMB_DIR}/scripts/yubikey-git-setup.sh status" >&2
+    echo "  4. Check status: ${TOMB_DIR}/scripts/hardware-git-setup.sh status" >&2
 
     # Check for repeated failures (potential attack)
     local recent_failures=$(grep -c "\[FAILURE\]\|\[TIMEOUT\]" "$LOG_FILE" 2>/dev/null || echo "0")
