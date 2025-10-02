@@ -8,6 +8,10 @@ In 2025 and onward, **every** push/pull/pr should require physical hardware veri
 
 **The Solution:** Physical hardware verification. Require YubiKey tap or Touch ID for every git network operation. If a malicious actor can physically access your hardware, you have much more pressing matters to attend to.
 
+![Sto](https://github.com/user-attachments/assets/4ece2970-c744-4fa1-84fc-e901a73e89e6)
+
+_Naming scheme derived from Solo Leveling because I decided why not ([Image Source](https://solo-leveling.fandom.com/wiki/Shadow_Preservation?file=Sto.jpg))_
+
 ### What Igris Provides
 
 - **Hardware Verification Enforcement** - YubiKey tap OR Touch ID via 1Password CLI
