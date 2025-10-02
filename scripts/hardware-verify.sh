@@ -81,7 +81,8 @@ main() {
     # Try verification methods in priority order
 
     # 1. YubiKey (most secure - hardware token with cryptographic verification)
-    if check_yubikey_available; then
+    # Skip YubiKey if TOMB_TOUCHID_ONLY is set (for testing)
+    if [ "${TOMB_TOUCHID_ONLY:-false}" = "false" ] && check_yubikey_available; then
         print_info "Attempting YubiKey verification (most secure)..."
         if "$YUBIKEY_VERIFY" "$OPERATION"; then
             exit 0
