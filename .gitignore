@@ -28,3 +28,9 @@ todos/
 
 # Repository-specific Claude Code configuration (gitignored for OPSEC)
 CLAUDE.md
+.claude/settings.local.json
+
+# Audio files (user-generated voice clips, not for version control)
+assets/audio/*.wav
+assets/audio/*.mp3
+!assets/audio/README.md

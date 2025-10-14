@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/fweir/git/internal/repos/**)",
+      "Bash(mkdir:*)",
+      "Bash(echo:*)",
+      "Bash(date:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(chmod:*)",
+      "Bash(/Users/fweir/git/internal/repos/nazarick-agents/scripts/audio-summary-tts-hook.sh:*)",
+      "Read(//Users/fweir/git/internal/scripts/**)",
+      "Bash(uv sync:*)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/fweir/git/internal/repos/nazarick-agents/scripts/agent-selector-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -58,6 +58,11 @@ security:
   max_failed_attempts: 5       # Before alerting
   alert_command: "osascript -e 'display notification \"YubiKey verification failed multiple times\" with title \"Security Alert\" sound name \"Basso\"'"
 
+audio:
+  enabled: true                # Play sound when YubiKey tap required
+  custom_sound_path: assets/audio/AlbedoYubikeyTapRequired.wav  # Path relative to TOMB_DIR
+  fallback_system_sound: Tink  # System sound if custom file not found (Glass, Tink, Pop, Purr, Basso)
+
 integration:
   fortify_managed: true
   auto_update_hooks: true      # Update hooks when fortify updates
@@ -66,6 +71,7 @@ integration:
     - /Users/fweir/git/internal/repos/carian-observatory
     - /Users/fweir/git/internal/repos/fifth-symphony
     - /Users/fweir/git/internal/repos/EchoLink-Reborn
+    - /Users/fweir/git/internal/repos/carian-constellation
 
 devices:
   # Multiple YubiKeys can be registered for redundancy
