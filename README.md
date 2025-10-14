@@ -15,9 +15,11 @@ _Naming scheme derived from Solo Leveling because I decided why not ([Image Sour
 ### What Igris Provides
 
 - **Hardware Verification Enforcement** - YubiKey tap OR Touch ID via 1Password CLI
+- **Command-Specific Audio Alerts** - Modular voice notifications for each git operation
 - **Defense-in-Depth Architecture** with multiple enforcement layers preventing bypass
 - **Flexible Authentication** - Use YubiKey (most secure) or Touch ID (convenient alternative)
 - **Cryptographic Verification** via HMAC-SHA1 challenge-response with touch requirement
+- **Bypass Detection Alerts** - Audio warnings when enforcement is disabled
 - **Auto-Revert Setup** ensuring no incomplete or misconfigured installations
 - **Comprehensive Audit Logging** for all verification attempts and failures
 - **Graceful Fallback** with security warnings when optimal verification unavailable
@@ -50,8 +52,13 @@ Igris implements a defense-in-depth security model with three enforcement layers
 ├── Layer 2: Git Hooks
 │   └── pre-push hook               → Catches direct binary invocations
 │
-└── Layer 3: YubiKey Verification
-    └── yubikey-verify.sh           → Cryptographic challenge-response
+├── Layer 3: YubiKey Verification
+│   └── yubikey-verify.sh           → Cryptographic challenge-response
+│
+└── Layer 4: Audio Alerts
+    ├── Command-specific alerts     → "YubiKey tap required for git push"
+    ├── Bypass detection            → "Warning: enforcement bypassed"
+    └── Modular composition         → Reusable prefix + action clips
 ```
 
 ### Security Flow
@@ -70,12 +77,20 @@ Igris implements a defense-in-depth security model with three enforcement layers
 4. Aborts push if verification fails
 
 **YubiKey Verification Core:**
-1. Detects YubiKey presence via `ykman`
-2. Generates random 32-byte challenge
-3. Sends challenge to YubiKey OTP slot 2
-4. Requires physical tap (hardware enforced)
-5. Validates HMAC-SHA1 response
-6. Logs attempt (success/failure/timeout)
+1. Plays command-specific audio alert (e.g., "YubiKey tap required for git push")
+2. Detects YubiKey presence via `ykman`
+3. Generates random 32-byte challenge
+4. Sends challenge to YubiKey OTP slot 2
+5. Requires physical tap (hardware enforced)
+6. Validates HMAC-SHA1 response
+7. Logs attempt (success/failure/timeout)
+
+**Audio Alert System:**
+1. Modular composition: prefix + action clips
+2. Command detection: identifies git/gh operation
+3. Audio playback: non-blocking, configurable
+4. Bypass alerts: warns when enforcement disabled
+5. Fallback: system sounds if custom files missing
 
 ### Verification Methods (Priority Order)
 
@@ -277,6 +292,7 @@ git push origin main
 **With YubiKey:**
 ```
 🔑 Hardware verification required for: git push origin main
+🔊 [Audio plays: "YubiKey tap required for git push"]
 ✅ YubiKey detected: Serial 12345678
 ℹ️  Verifying with OTP challenge-response (requires physical tap)...
 ℹ️  👆 TAP YOUR YUBIKEY NOW to verify (timeout: 10s)
@@ -323,9 +339,19 @@ This installs pre-push hooks in repositories listed in `configs/yubikey-enforcem
 |------|---------|-------------|
 | **Check Status** | `./scripts/hardware-git-setup.sh status` | Show enforcement state and hardware availability |
 | **Test Verification** | `./scripts/hardware-git-setup.sh test` | Test hardware verification (YubiKey or Touch ID) |
-| **Disable Enforcement** | `./scripts/hardware-git-setup.sh disable` | Temporarily disable |
+| **Disable Enforcement** | `./scripts/hardware-git-setup.sh disable` | Temporarily disable (triggers audio alert) |
 | **Enable Enforcement** | `./scripts/hardware-git-setup.sh enable` | Re-enable after disable |
 | **Remove System** | `./scripts/hardware-git-setup.sh remove` | Complete uninstall |
+
+### Audio Alert Configuration
+
+| Task | File | Description |
+|------|------|-------------|
+| **View Audio Config** | `configs/audio-alerts.yml` | Command-to-audio mappings |
+| **Audio File Directory** | `assets/audio/` | Voice clips and sounds |
+| **Audio Documentation** | `assets/audio/README.md` | Setup guide and file reference |
+| **Toggle Modular Audio** | Set `use_modular_audio: true/false` | Enable/disable modular composition |
+| **Bypass Alert Toggle** | Set `bypass_alert_enabled: true/false` | Enable/disable bypass warnings |
 
 ### YubiKey OTP Management
 
@@ -351,9 +377,10 @@ git push  # No tap required
 
 **Environment Variable Override:**
 ```bash
-# One-time bypass (use with caution)
+# One-time bypass (use with caution - triggers audio warning)
 export TOMB_YUBIKEY_ENABLED=false
-git push  # Will work without tap (with warnings)
+git push  # 🔊 [Audio plays: "Warning: YubiKey enforcement bypassed"]
+         # Will work without tap (with warnings)
 unset TOMB_YUBIKEY_ENABLED
 ```
 
@@ -596,7 +623,7 @@ exemptions:
 ```
 igris/
 ├── scripts/
-│   ├── yubikey-verify.sh            # Core verification logic
+│   ├── yubikey-verify.sh            # Core verification logic + audio
 │   ├── git-yubikey-wrapper.sh       # Git command wrapper
 │   ├── gh-yubikey-wrapper.sh        # GitHub CLI wrapper
 │   ├── hardware-git-setup.sh         # Management CLI
@@ -605,7 +632,14 @@ igris/
 │   └── git-hooks/
 │       └── pre-push                  # Pre-push hook template
 ├── configs/
-│   └── yubikey-enforcement.yml       # Configuration file
+│   ├── yubikey-enforcement.yml       # Main configuration file
+│   └── audio-alerts.yml              # Audio alert mappings
+├── assets/
+│   └── audio/
+│       ├── README.md                 # Audio setup guide
+│       ├── prefix-*.wav              # Modular prefix clip
+│       ├── action-*.wav              # Modular action clips
+│       └── bypass-detected.wav       # Security alert sound
 └── README.md                         # This file
 ```
 
@@ -624,7 +658,10 @@ igris/
 **Operational Excellence:**
 - Interactive setup with clear prompts
 - Automatic shell configuration reload
-- Visual feedback (emojis, colors, clear messages)
+- Multi-modal feedback (visual + audio alerts)
+- Command-specific audio notifications for attention management
+- Modular audio composition for efficiency
+- Bypass detection with audible warnings
 - Graceful error handling with recovery instructions
 - Complete management CLI (setup/enable/disable/remove/status)
 - Non-interactive mode for automation
