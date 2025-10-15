@@ -12,6 +12,7 @@ LOG_FILE="${HOME}/.tomb-yubikey-verifications.log"
 TOMB_DIR="${TOMB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 CONFIG_FILE="${TOMB_DIR}/configs/yubikey-enforcement.yml"
 AUDIO_CONFIG="${TOMB_DIR}/configs/audio-alerts.yml"
+AUDIO_CACHE_FILE="${HOME}/.tomb-audio-cache"
 
 # Colors for output
 RED='\033[0;31m'
@@ -59,8 +60,48 @@ print_warning() {
     echo -e "${YELLOW}⚠️${NC} $1" >&2
 }
 
+# Check if audio should be deduplicated (time-based cache)
+should_play_audio() {
+    # Get deduplication window from config (default: 8 seconds)
+    local dedup_window=$(grep "deduplication_window_seconds:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+    dedup_window="${dedup_window:-8}"
+
+    # Check if deduplication is enabled
+    local dedup_enabled=$(grep "deduplication_enabled:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+    if [ "$dedup_enabled" != "true" ]; then
+        return 0  # Play audio (deduplication disabled)
+    fi
+
+    # Check cache file
+    if [ ! -f "$AUDIO_CACHE_FILE" ]; then
+        # No cache, play audio and create cache
+        date +%s > "$AUDIO_CACHE_FILE"
+        return 0
+    fi
+
+    # Read last audio timestamp
+    local last_audio=$(cat "$AUDIO_CACHE_FILE" 2>/dev/null || echo "0")
+    local current_time=$(date +%s)
+    local time_diff=$((current_time - last_audio))
+
+    # If within deduplication window, skip audio
+    if [ "$time_diff" -lt "$dedup_window" ]; then
+        return 1  # Skip audio (too recent)
+    fi
+
+    # Update cache with current time
+    echo "$current_time" > "$AUDIO_CACHE_FILE"
+    return 0  # Play audio
+}
+
 # Play audio alert for YubiKey tap request
 play_audio_alert() {
+    # Check deduplication before playing audio
+    if ! should_play_audio; then
+        print_info "🔇 Audio skipped (recent verification within deduplication window)"
+        return 0
+    fi
+
     # Check if audio is enabled in audio config
     if [ ! -f "$AUDIO_CONFIG" ]; then
         # Fallback to old config method if audio-alerts.yml doesn't exist
