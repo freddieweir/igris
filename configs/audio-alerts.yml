@@ -10,6 +10,10 @@ global:
   bypass_alert_sound: assets/audio/bypass-detected.wav  # Play when TOMB_YUBIKEY_ENABLED=false detected
   bypass_alert_enabled: true  # Alert when bypass is detected
 
+  # Audio deduplication (prevents double-prompts for rapid operations)
+  deduplication_enabled: true  # Skip audio if recent verification within window
+  deduplication_window_seconds: 8  # Time window for deduplication (gh pr create + git push scenario)
+
   # Modular audio composition (NEW: play prefix + action for efficiency)
   use_modular_audio: true  # Combine prefix + action clips instead of full phrases
   pause_between_clips: 0.05  # Seconds between prefix and action clip (0.0 = no pause, 0.1 = slight pause)
