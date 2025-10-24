@@ -7,7 +7,13 @@
 set -euo pipefail
 
 # Get the actual gh binary (not this wrapper)
-GH_BINARY="/usr/local/bin/gh"
+# Use dynamic detection to support both Intel (/usr/local/bin) and Apple Silicon (/opt/homebrew/bin)
+GH_BINARY="$(command -v gh)"
+if [ -z "$GH_BINARY" ]; then
+    echo "❌ Error: gh CLI not found in PATH" >&2
+    echo "Install with: brew install gh" >&2
+    exit 1
+fi
 TOMB_DIR="${TOMB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 VERIFY_SCRIPT="${TOMB_DIR}/scripts/hardware-verify.sh"
 

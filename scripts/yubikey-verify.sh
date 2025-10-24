@@ -11,6 +11,8 @@ TIMEOUT_SECONDS="${YUBIKEY_TIMEOUT:-10}"
 LOG_FILE="${HOME}/.tomb-yubikey-verifications.log"
 TOMB_DIR="${TOMB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 CONFIG_FILE="${TOMB_DIR}/configs/yubikey-enforcement.yml"
+AUDIO_CONFIG="${TOMB_DIR}/configs/audio-alerts.yml"
+AUDIO_CACHE_FILE="${HOME}/.tomb-audio-cache"
 
 # Colors for output
 RED='\033[0;31m'
@@ -58,14 +60,253 @@ print_warning() {
     echo -e "${YELLOW}⚠️${NC} $1" >&2
 }
 
+# Check if audio should be deduplicated (time-based cache)
+should_play_audio() {
+    # Get deduplication window from config (default: 8 seconds)
+    local dedup_window=$(grep "deduplication_window_seconds:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+    dedup_window="${dedup_window:-8}"
+
+    # Check if deduplication is enabled
+    local dedup_enabled=$(grep "deduplication_enabled:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+    if [ "$dedup_enabled" != "true" ]; then
+        return 0  # Play audio (deduplication disabled)
+    fi
+
+    # Check cache file
+    if [ ! -f "$AUDIO_CACHE_FILE" ]; then
+        # No cache, play audio and create cache
+        date +%s > "$AUDIO_CACHE_FILE"
+        return 0
+    fi
+
+    # Read last audio timestamp
+    local last_audio=$(cat "$AUDIO_CACHE_FILE" 2>/dev/null || echo "0")
+    local current_time=$(date +%s)
+    local time_diff=$((current_time - last_audio))
+
+    # If within deduplication window, skip audio
+    if [ "$time_diff" -lt "$dedup_window" ]; then
+        return 1  # Skip audio (too recent)
+    fi
+
+    # Update cache with current time
+    echo "$current_time" > "$AUDIO_CACHE_FILE"
+    return 0  # Play audio
+}
+
+# Play audio alert for YubiKey tap request
+play_audio_alert() {
+    # Check deduplication before playing audio
+    if ! should_play_audio; then
+        print_info "🔇 Audio skipped (recent verification within deduplication window)"
+        return 0
+    fi
+
+    # Check if audio is enabled in audio config
+    if [ ! -f "$AUDIO_CONFIG" ]; then
+        # Fallback to old config method if audio-alerts.yml doesn't exist
+        local audio_enabled=$(grep -A 3 "^audio:" "$CONFIG_FILE" 2>/dev/null | grep "enabled:" | awk '{print $2}')
+        if [ "$audio_enabled" != "true" ]; then
+            return 0
+        fi
+        local custom_sound=$(grep -A 3 "^audio:" "$CONFIG_FILE" 2>/dev/null | grep "custom_sound_path:" | awk '{print $2}')
+        if [[ ! "$custom_sound" =~ ^[/~] ]]; then
+            custom_sound="${TOMB_DIR}/${custom_sound}"
+        fi
+        custom_sound="${custom_sound/#\~/$HOME}"
+        if [ -f "$custom_sound" ]; then
+            afplay "$custom_sound" &>/dev/null &
+        else
+            afplay "/System/Library/Sounds/Tink.aiff" &>/dev/null &
+        fi
+        return 0
+    fi
+
+    # Check if global audio is enabled
+    local audio_enabled=$(grep "enabled:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+    if [ "$audio_enabled" != "true" ]; then
+        return 0
+    fi
+
+    # Parse operation to find command-specific audio
+    local cmd_type=""
+    local cmd_action=""
+
+    # Detect git vs gh operations
+    if [[ "$OPERATION" =~ ^git ]]; then
+        cmd_type="git"
+        # Extract action (push, pull, fetch, etc.)
+        if [[ "$OPERATION" =~ push ]]; then
+            cmd_action="push"
+        elif [[ "$OPERATION" =~ pull ]]; then
+            cmd_action="pull"
+        elif [[ "$OPERATION" =~ fetch ]]; then
+            cmd_action="fetch"
+        elif [[ "$OPERATION" =~ clone ]]; then
+            cmd_action="clone"
+        elif [[ "$OPERATION" =~ "remote add" ]]; then
+            cmd_action="remote_add"
+        elif [[ "$OPERATION" =~ "remote update" ]]; then
+            cmd_action="remote_update"
+        elif [[ "$OPERATION" =~ "submodule update" ]]; then
+            cmd_action="submodule_update"
+        fi
+    elif [[ "$OPERATION" =~ ^gh ]]; then
+        cmd_type="gh"
+        # Extract gh action
+        if [[ "$OPERATION" =~ "pr create" ]]; then
+            cmd_action="pr_create"
+        elif [[ "$OPERATION" =~ "pr merge" ]]; then
+            cmd_action="pr_merge"
+        elif [[ "$OPERATION" =~ "release create" ]]; then
+            cmd_action="release_create"
+        elif [[ "$OPERATION" =~ "repo clone" ]]; then
+            cmd_action="repo_clone"
+        elif [[ "$OPERATION" =~ "workflow run" ]]; then
+            cmd_action="workflow_run"
+        fi
+    fi
+
+    # Check if modular audio is enabled
+    local use_modular=$(grep "use_modular_audio:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+
+    if [ "$use_modular" = "true" ] && [ -n "$cmd_type" ] && [ -n "$cmd_action" ]; then
+        # MODULAR MODE: Play prefix + action
+        local pause_duration=$(grep "pause_between_clips:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+        pause_duration="${pause_duration:-0.0}"
+
+        # Get operation category (read, write, security) and modular action audio
+        local category=$(awk -v type="$cmd_type" -v action="$cmd_action" '
+            $0 ~ "^" type ":" {in_section=1; next}
+            in_section && $0 ~ "^[a-z]+:" {in_section=0}
+            in_section && $1 == action ":" {in_action=1; next}
+            in_action && /category:/ {gsub(/#.*/, ""); print $2; exit}
+        ' "$AUDIO_CONFIG")
+
+        local action_file=$(awk -v type="$cmd_type" -v action="$cmd_action" '
+            $0 ~ "^" type ":" {in_section=1; next}
+            in_section && $0 ~ "^[a-z]+:" {in_section=0}
+            in_section && $1 == action ":" {in_action=1; next}
+            in_action && /modular_audio:/ {print $2; exit}
+        ' "$AUDIO_CONFIG")
+
+        # Select prefix based on category
+        local prefix_file=""
+        case "$category" in
+            write)
+                prefix_file=$(grep "prefix_sound_write:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+                ;;
+            read)
+                prefix_file=$(grep "prefix_sound_read:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+                ;;
+            security)
+                prefix_file=$(grep "prefix_sound_security:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+                ;;
+            *)
+                prefix_file=$(grep "prefix_sound_default:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+                ;;
+        esac
+
+        # Resolve paths
+        if [[ ! "$prefix_file" =~ ^[/~] ]]; then
+            prefix_file="${TOMB_DIR}/${prefix_file}"
+        fi
+        prefix_file="${prefix_file/#\~/$HOME}"
+
+        if [[ ! "$action_file" =~ ^[/~] ]]; then
+            action_file="${TOMB_DIR}/${action_file}"
+        fi
+        action_file="${action_file/#\~/$HOME}"
+
+        # Play prefix, pause, then action (in background)
+        if [ -f "$prefix_file" ] && [ -f "$action_file" ]; then
+            (
+                afplay "$prefix_file" 2>/dev/null
+                [ "$pause_duration" != "0.0" ] && sleep "$pause_duration"
+                afplay "$action_file" 2>/dev/null
+            ) &
+            return 0
+        fi
+        # If modular files missing, fall through to legacy mode
+    fi
+
+    # LEGACY MODE: Play full phrase audio file
+    local audio_file=""
+    if [ -n "$cmd_type" ] && [ -n "$cmd_action" ]; then
+        # Look for command-specific mapping in audio config
+        audio_file=$(awk -v type="$cmd_type" -v action="$cmd_action" '
+            $0 ~ "^" type ":" {in_section=1; next}
+            in_section && $0 ~ "^[a-z]+:" {in_section=0}
+            in_section && $1 == action ":" {in_action=1; next}
+            in_action && /audio:/ {print $2; exit}
+        ' "$AUDIO_CONFIG")
+    fi
+
+    # Get fallback sound if no specific mapping found
+    if [ -z "$audio_file" ] || [ ! -f "${TOMB_DIR}/${audio_file}" ]; then
+        audio_file=$(grep "fallback_sound:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+        if [ -z "$audio_file" ]; then
+            audio_file="assets/audio/AlbedoYubikeyTapRequired.wav"
+        fi
+    fi
+
+    # Resolve path (relative to TOMB_DIR)
+    if [[ ! "$audio_file" =~ ^[/~] ]]; then
+        audio_file="${TOMB_DIR}/${audio_file}"
+    fi
+    audio_file="${audio_file/#\~/$HOME}"
+
+    # Play audio file or fallback to system sound
+    if [ -f "$audio_file" ]; then
+        afplay "$audio_file" &>/dev/null &
+    else
+        local fallback_system=$(grep "fallback_system_sound:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+        fallback_system="${fallback_system:-Tink}"
+        afplay "/System/Library/Sounds/${fallback_system}.aiff" &>/dev/null &
+    fi
+}
+
 # Check if enforcement is enabled
 check_enforcement_enabled() {
     if [ "${TOMB_YUBIKEY_ENABLED:-true}" = "false" ]; then
+        # Play bypass alert sound if enabled
+        play_bypass_alert
+
         print_warning "YubiKey enforcement is disabled (TOMB_YUBIKEY_ENABLED=false)"
         log_verification "BYPASSED" "enforcement_disabled" "n/a"
         return 1
     fi
     return 0
+}
+
+# Play audio alert for bypass detection
+play_bypass_alert() {
+    # Check if bypass alerting is enabled
+    if [ ! -f "$AUDIO_CONFIG" ]; then
+        return 0
+    fi
+
+    local bypass_enabled=$(grep "bypass_alert_enabled:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+    if [ "$bypass_enabled" != "true" ]; then
+        return 0
+    fi
+
+    # Get bypass alert sound path
+    local bypass_sound=$(grep "bypass_alert_sound:" "$AUDIO_CONFIG" 2>/dev/null | head -1 | sed 's/#.*//' | awk '{print $2}')
+
+    # Resolve path (relative to TOMB_DIR)
+    if [[ ! "$bypass_sound" =~ ^[/~] ]]; then
+        bypass_sound="${TOMB_DIR}/${bypass_sound}"
+    fi
+    bypass_sound="${bypass_sound/#\~/$HOME}"
+
+    # Play bypass alert or fallback to system Basso (warning sound)
+    if [ -f "$bypass_sound" ]; then
+        afplay "$bypass_sound" &>/dev/null &
+    else
+        # Use Basso (macOS warning sound) as fallback for bypass detection
+        afplay "/System/Library/Sounds/Basso.aiff" &>/dev/null &
+    fi
 }
 
 # Detect YubiKey presence
@@ -112,6 +353,9 @@ verify_otp_touch() {
 
     # Generate random challenge
     local challenge=$(openssl rand -hex 32)
+
+    # Play audio alert to grab attention
+    play_audio_alert
 
     print_info "👆 TAP YOUR YUBIKEY NOW to verify (timeout: ${TIMEOUT_SECONDS}s)"
 
