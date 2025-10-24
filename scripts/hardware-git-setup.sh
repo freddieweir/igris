@@ -443,12 +443,13 @@ install_hooks_in_repos() {
             }
         }' "$CONFIG_FILE")
     else
-        # Default repos
+        # Default repos - use GIT_ROOT environment variable
+        local git_root="${GIT_ROOT:-$HOME/git}"
         repos=$(cat << EOF
-$HOME/git/internal/repos/tomb-of-nazarick
-$HOME/git/internal/repos/carian-observatory
-$HOME/git/internal/repos/fifth-symphony
-$HOME/git/internal/repos/EchoLink-Reborn
+${git_root}/internal/repos/tomb-of-nazarick
+${git_root}/internal/repos/carian-observatory
+${git_root}/internal/repos/fifth-symphony
+${git_root}/internal/repos/EchoLink-Reborn
 EOF
 )
     fi
