@@ -58,7 +58,7 @@ File: `.mcp.json` in project root
       "command": "uv",
       "args": [
         "--directory",
-        "$HOME/git/external/mcp/elevenlabs-mcp",
+        "${env:GIT_ROOT}/external/mcp/elevenlabs-mcp",
         "run",
         "elevenlabs-mcp"
       ],
@@ -78,8 +78,8 @@ Use text_to_speech to say "Hello from Claude Code"
 ```
 
 ### Repositories with MCP Configured
-- ✅ `$HOME/git/internal/repos/igris/.mcp.json`
-- ✅ `$HOME/git/claude/.mcp.json`
+- ✅ `$GIT_ROOT/internal/repos/igris/.mcp.json`
+- ✅ `$GIT_ROOT/claude/.mcp.json`
 
 ---
 
@@ -90,13 +90,13 @@ Use text_to_speech to say "Hello from Claude Code"
 Create a startup script:
 
 ```bash
-# $HOME/git/internal/repos/carian-observatory/services/elevenlabs-mcp/start-mcpo.sh
+# $GIT_ROOT/internal/repos/carian-observatory/services/elevenlabs-mcp/start-mcpo.sh
 
 #!/bin/bash
 export ELEVENLABS_API_KEY=$(op item get "Eleven Labs - API" --fields credential --vault API --reveal)
 export ELEVENLABS_DEFAULT_VOICE_ID="<voice-id>"
 
-uvx mcpo --port 8000 -- uv --directory $HOME/git/external/mcp/elevenlabs-mcp run elevenlabs-mcp
+uvx mcpo --port 8000 -- uv --directory $GIT_ROOT/external/mcp/elevenlabs-mcp run elevenlabs-mcp
 ```
 
 Make it executable:
@@ -142,7 +142,7 @@ version: "3.8"
 services:
   elevenlabs-mcp-proxy:
     build:
-      context: $HOME/git/external/mcp/elevenlabs-mcp
+      context: ${GIT_ROOT}/external/mcp/elevenlabs-mcp
       dockerfile: Dockerfile
     container_name: co-elevenlabs-mcp-proxy
     ports:
@@ -211,7 +211,7 @@ class MCPClient:
         return json.loads(stdout)
 
 # Usage example
-mcp = MCPClient("$HOME/git/claude/.mcp.json")
+mcp = MCPClient(f"{os.environ.get('GIT_ROOT', str(Path.home() / 'git'))}/claude/.mcp.json")
 result = mcp.call_tool("elevenlabs", "text_to_speech", {
     "text": "Automation task completed successfully",
     "voice_id": "<voice-id>"
@@ -330,7 +330,7 @@ def deploy_service(service_name: str):
 ### MCP Server Won't Start
 ```bash
 # Test manually
-cd $HOME/git/external/mcp/elevenlabs-mcp
+cd $GIT_ROOT/external/mcp/elevenlabs-mcp
 ELEVENLABS_API_KEY=$ELEVENLABS_API_KEY uv run elevenlabs-mcp
 
 # Check logs
