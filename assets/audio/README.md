@@ -81,7 +81,7 @@ Set `use_modular_audio: false` in `configs/audio-alerts.yml`, then create these:
 2. **Add file to this directory**:
    ```bash
    # Example: Adding git push audio
-   cp ~/Downloads/git-push.wav /Users/fweir/git/internal/repos/igris/assets/audio/
+   cp ~/Downloads/git-push.wav $GIT_ROOT/internal/repos/igris/assets/audio/
    ```
 
 3. **Update status in table**:

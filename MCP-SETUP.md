@@ -44,7 +44,7 @@ Location: [`.mcp.json`](.mcp.json)
       "command": "uv",
       "args": [
         "--directory",
-        "/Users/fweir/git/external/mcp/elevenlabs-mcp",
+        "${env:GIT_ROOT}/external/mcp/elevenlabs-mcp",
         "run",
         "elevenlabs-mcp"
       ],
@@ -124,7 +124,7 @@ Check my ElevenLabs subscription status
 
 2. Test MCP server manually:
    ```bash
-   cd /Users/fweir/git/external/mcp/elevenlabs-mcp
+   cd $GIT_ROOT/external/mcp/elevenlabs-mcp
    ELEVENLABS_API_KEY=$ELEVENLABS_API_KEY uv run elevenlabs-mcp
    ```
 
@@ -156,7 +156,7 @@ pbpaste | speak
 ## Integration with Other Tools
 
 ### Claude Orchestrator
-Copy `.mcp.json` to `/Users/fweir/git/claude/.mcp.json`
+Copy `.mcp.json` to `$GIT_ROOT/claude/.mcp.json`
 
 ### Fifth Symphony
 MCP can be integrated into automation workflows via Python:
@@ -177,7 +177,7 @@ uvx mcpo --port 8000 -- uv --directory /path/to/elevenlabs-mcp run elevenlabs-mc
 
 - [.mcp.json](.mcp.json) - MCP server configuration
 - [~/.zshrc](~/.zshrc) - Environment variables and API key loading
-- [MCP Server Source](/Users/fweir/git/external/mcp/elevenlabs-mcp) - ElevenLabs MCP implementation
+- [MCP Server Source]($GIT_ROOT/external/mcp/elevenlabs-mcp) - ElevenLabs MCP implementation
 
 ## Security Notes
 

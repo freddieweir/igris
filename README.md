@@ -322,9 +322,9 @@ To install hooks in all workspace repositories:
 ```
 
 This installs pre-push hooks in repositories listed in `configs/yubikey-enforcement.yml`:
-- `/Users/fweir/git/internal/repos/carian-observatory`
-- `/Users/fweir/git/internal/repos/fifth-symphony`
-- `/Users/fweir/git/internal/repos/EchoLink-Reborn`
+- `$GIT_ROOT/internal/repos/carian-observatory`
+- `$GIT_ROOT/internal/repos/fifth-symphony`
+- `$GIT_ROOT/internal/repos/EchoLink-Reborn`
 
 </details>
 
