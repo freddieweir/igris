@@ -6,8 +6,9 @@
 
 set -euo pipefail
 
-# Locate Igris directory
-TOMB_DIR="${TOMB_DIR:-/Users/fweir/git/internal/repos/igris}"
+# Locate Igris directory - use git root for portability
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TOMB_DIR="${TOMB_DIR:-${SCRIPT_DIR}}"
 VERIFY_SCRIPT="${TOMB_DIR}/scripts/hardware-verify.sh"
 
 # Color output
