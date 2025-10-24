@@ -1,0 +1,137 @@
+# Audio Alert Mapping for YubiKey Verification
+# Custom voice clips for different git operations
+# Generated with ElevenLabs voice synthesis
+
+# Global audio settings
+global:
+  enabled: true
+  fallback_sound: assets/audio/prefix-yubikey-tap-required-for.wav  # Default if no specific mapping
+  fallback_system_sound: Tink  # System sound if files missing
+  bypass_alert_sound: assets/audio/bypass-detected.wav  # Play when TOMB_YUBIKEY_ENABLED=false detected
+  bypass_alert_enabled: true  # Alert when bypass is detected
+
+  # Audio deduplication (prevents double-prompts for rapid operations)
+  deduplication_enabled: true  # Skip audio if recent verification within window
+  deduplication_window_seconds: 8  # Time window for deduplication (gh pr create + git push scenario)
+
+  # Modular audio composition (NEW: play prefix + action for efficiency)
+  use_modular_audio: true  # Combine prefix + action clips instead of full phrases
+  pause_between_clips: 0.05  # Seconds between prefix and action clip (0.0 = no pause, 0.1 = slight pause)
+
+  # Category-based prefix sounds (different sounds for different operation types)
+  prefix_sound_write: assets/audio/DSGNBass-one-shot_sample_of_a-Elevenlabs.wav   # Alert tone for write ops (push, merge)
+  prefix_sound_read: assets/audio/DSGNBass-one-shot_sample_of_a-Elevenlabs.wav     # Soft tone for read ops (pull, fetch, clone)
+  prefix_sound_security: assets/audio/DSGNBass-one-shot_sample_of_a-Elevenlabs.wav # Warning tone for security alerts
+  prefix_sound_default: assets/audio/DSGNBass-one-shot_sample_of_a-Elevenlabs.wav  # Fallback (current voice)
+
+# Command-specific audio mappings
+# Format: {command}: {audio_file_path}
+# Paths are relative to TOMB_DIR
+
+git:
+  push:
+    audio: assets/audio/git-push.wav  # Legacy: full phrase (if use_modular_audio=false)
+    modular_audio: assets/audio/action-git-push.wav  # Modular: just "git push" (if use_modular_audio=true)
+    category: write  # Uses prefix_sound_write
+    description: "Push commits to remote"
+
+  pull:
+    audio: assets/audio/git-pull.wav
+    modular_audio: assets/audio/action-git-pull.wav  # Just "git pull"
+    category: read  # Uses prefix_sound_read
+    description: "Pull changes from remote"
+
+  fetch:
+    audio: assets/audio/git-fetch.wav
+    modular_audio: assets/audio/action-git-fetch.wav  # Just "git fetch"
+    category: read  # Uses prefix_sound_read
+    description: "Fetch remote changes"
+
+  clone:
+    audio: assets/audio/git-clone.wav
+    modular_audio: assets/audio/action-git-clone.wav  # Just "git clone"
+    category: read  # Uses prefix_sound_read
+    description: "Clone repository"
+
+  # Remote operations
+  remote_add:
+    audio: assets/audio/git-remote-add.wav
+    modular_audio: assets/audio/action-git-remote-add.wav  # Just "git remote add"
+    category: write  # Uses prefix_sound_write
+    description: "Add remote repository"
+
+  remote_update:
+    audio: assets/audio/git-remote-update.wav
+    modular_audio: assets/audio/action-git-remote-update.wav  # Just "git remote update"
+    category: read  # Uses prefix_sound_read
+    description: "Update remote references"
+
+  # Submodule operations
+  submodule_update:
+    audio: assets/audio/git-submodule-update.wav
+    modular_audio: assets/audio/action-git-submodule-update.wav  # Just "git submodule update"
+    category: read  # Uses prefix_sound_read
+    description: "Update git submodules"
+
+# GitHub CLI operations
+gh:
+  pr_create:
+    audio: assets/audio/gh-pr-create.wav
+    modular_audio: assets/audio/action-gh-pr-create.wav  # Just "GitHub pull request create"
+    category: write  # Uses prefix_sound_write
+    description: "Create pull request"
+
+  pr_merge:
+    audio: assets/audio/gh-pr-merge.wav
+    modular_audio: assets/audio/action-gh-pr-merge.wav  # Just "GitHub pull request merge"
+    category: write  # Uses prefix_sound_write
+    description: "Merge pull request"
+
+  release_create:
+    audio: assets/audio/gh-release-create.wav
+    modular_audio: assets/audio/action-gh-release-create.wav  # Just "GitHub release create"
+    category: write  # Uses prefix_sound_write
+    description: "Create release"
+
+  repo_clone:
+    audio: assets/audio/gh-repo-clone.wav
+    modular_audio: assets/audio/action-gh-repo-clone.wav  # Just "GitHub repo clone"
+    category: read  # Uses prefix_sound_read
+    description: "Clone GitHub repository"
+
+  workflow_run:
+    audio: assets/audio/gh-workflow-run.wav
+    modular_audio: assets/audio/action-gh-workflow-run.wav  # Just "GitHub workflow run"
+    category: write  # Uses prefix_sound_write
+    description: "Run GitHub workflow"
+
+# 1Password Touch ID alerts
+onepassword:
+  enabled: true  # Play sound when 1Password Touch ID prompt appears
+  touchid_alert_sound: Glass  # macOS system sound (alternatives: Tink, Pop, Purr, Hero, Ping, Blow, Bottle)
+
+# Voice clip generation guide
+# Use ElevenLabs with these suggested phrases:
+#
+# === MODULAR AUDIO (Recommended - saves time and space) ===
+# Prefix (one file used for all):
+#   prefix-yubikey-tap-required-for.wav: "YubiKey tap required for"
+#
+# Actions (short clips):
+#   action-git-push.wav:           "git push"
+#   action-git-pull.wav:           "git pull"
+#   action-git-fetch.wav:          "git fetch"
+#   action-git-clone.wav:          "git clone"
+#   action-git-remote-add.wav:     "git remote add"
+#   action-gh-pr-create.wav:       "GitHub pull request create"
+#   action-gh-pr-merge.wav:        "GitHub pull request merge"
+#   action-gh-release-create.wav:  "GitHub release create"
+#
+# === LEGACY FULL PHRASES (Optional - use if modular sounds bad) ===
+#   git-push.wav:    "YubiKey tap required for git push"
+#   git-pull.wav:    "YubiKey tap required for git pull"
+#   git-fetch.wav:   "YubiKey tap required for git fetch"
+#   (Set use_modular_audio: false to use these)
+#
+# Security alerts:
+#   bypass-detected.wav: "Warning: YubiKey enforcement has been bypassed"
