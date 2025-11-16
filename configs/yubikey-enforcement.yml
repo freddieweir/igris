@@ -9,13 +9,13 @@ enforcement:
   retry_attempts: 3            # Failed attempts before lockout warning
 
 verification:
-  method: auto                 # auto, yubikey, touchid
+  method: yubikey              # auto, yubikey, touchid
   # auto: Try YubiKey OTP first, fall back to Touch ID, then other methods
   # yubikey: YubiKey only (most secure - hardware token)
   # touchid: Touch ID via 1Password CLI only (biometric)
 
   touchid:
-    enabled: true              # Allow Touch ID as alternative to YubiKey
+    enabled: false             # Allow Touch ID as alternative to YubiKey
     require_1password_cli: true  # Require 1Password CLI for Touch ID
     priority: 2                # Try after YubiKey OTP with touch (1)
 
