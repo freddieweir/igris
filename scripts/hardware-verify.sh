@@ -13,6 +13,13 @@ TOUCHID_VERIFY="${TOMB_DIR}/scripts/touchid-verify.sh"
 CONFIG_FILE="${TOMB_DIR}/configs/yubikey-enforcement.yml"
 LOG_FILE="${HOME}/.tomb-yubikey-verifications.log"
 
+# Use Homebrew ykman explicitly to avoid broken Python installations
+if [ -x "/opt/homebrew/bin/ykman" ]; then
+    YKMAN_BIN="/opt/homebrew/bin/ykman"
+else
+    YKMAN_BIN="ykman"  # Fallback to PATH
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -60,7 +67,7 @@ check_enforcement_enabled() {
 
 # Check if YubiKey is available
 check_yubikey_available() {
-    command -v ykman &> /dev/null && ykman list 2>/dev/null | grep -q "YubiKey"
+    command -v "$YKMAN_BIN" &> /dev/null && "$YKMAN_BIN" list 2>/dev/null | grep -q "YubiKey"
 }
 
 # Check if Touch ID is available
