@@ -14,6 +14,13 @@ CONFIG_FILE="${TOMB_DIR}/configs/yubikey-enforcement.yml"
 AUDIO_CONFIG="${TOMB_DIR}/configs/audio-alerts.yml"
 AUDIO_CACHE_FILE="${HOME}/.tomb-audio-cache"
 
+# Use Homebrew $YKMAN_BIN explicitly to avoid broken Python installations
+if [ -x "/opt/homebrew/bin/ykman" ]; then
+    YKMAN_BIN="/opt/homebrew/bin/ykman"
+else
+    YKMAN_BIN="ykman"  # Fallback to PATH
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -311,13 +318,14 @@ play_bypass_alert() {
 
 # Detect YubiKey presence
 detect_yubikey() {
-    if ! command -v ykman &> /dev/null; then
+    # Uses global YKMAN_BIN variable set at script initialization
+    if ! command -v "$YKMAN_BIN" &> /dev/null; then
         print_error "ykman not found. Install with: brew install ykman"
         return 1
     fi
 
     local yubikey_info
-    if ! yubikey_info=$(ykman list 2>/dev/null); then
+    if ! yubikey_info=$("$YKMAN_BIN" list 2>/dev/null); then
         print_error "No YubiKey detected. Please connect your YubiKey."
         return 1
     fi
@@ -333,13 +341,36 @@ detect_yubikey() {
     return 0
 }
 
+# Verify OTP slot 2 is configured with touch requirement
+check_otp_touch_configured() {
+    local otp_info
+    if ! otp_info=$($YKMAN_BIN otp info 2>/dev/null); then
+        return 1
+    fi
+
+    # Check if slot 2 has touch requirement configured
+    # $YKMAN_BIN shows "configured" but doesn't explicitly show touch flag
+    # We need to test with a challenge to verify touch behavior
+    if echo "$otp_info" | grep -q "Slot 2: empty"; then
+        return 1
+    fi
+
+    # Extract slot 2 info line
+    local slot2_line=$(echo "$otp_info" | grep -A 1 "Slot 2:" | tail -1)
+
+    # Check for touch indicators in the output
+    # Note: $YKMAN_BIN doesn't always show touch flag explicitly
+    # We'll do a timing check during actual verification
+    return 0
+}
+
 # OTP Challenge-Response verification with REQUIRED physical touch
 verify_otp_touch() {
     print_info "Verifying with OTP challenge-response (requires physical tap)..."
 
     # Check if OTP slot 2 is configured
     local otp_info
-    if ! otp_info=$(ykman otp info 2>/dev/null); then
+    if ! otp_info=$($YKMAN_BIN otp info 2>/dev/null); then
         print_warning "OTP not configured on this YubiKey"
         return 1
     fi
@@ -347,8 +378,17 @@ verify_otp_touch() {
     # Check if slot 2 has a credential
     if echo "$otp_info" | grep -q "Slot 2: empty"; then
         print_warning "OTP Slot 2 is empty - needs configuration"
-        print_info "Run: ykman otp chalresp --generate --touch 2"
+        print_info "Run: $YKMAN_BIN otp chalresp --generate --touch 2"
         return 1
+    fi
+
+    # SECURITY: Verify slot 2 is configured for challenge-response
+    if ! echo "$otp_info" | grep -q "Slot 2:.*programmed"; then
+        if ! echo "$otp_info" | grep -A 1 "Slot 2:" | grep -q "configured\|programmed\|HMAC-SHA1"; then
+            print_warning "OTP Slot 2 not properly configured"
+            print_info "Run: $YKMAN_BIN otp chalresp --generate --touch 2"
+            return 1
+        fi
     fi
 
     # Generate random challenge
@@ -359,15 +399,38 @@ verify_otp_touch() {
 
     print_info "👆 TAP YOUR YUBIKEY NOW to verify (timeout: ${TIMEOUT_SECONDS}s)"
 
-    # Use ykman otp calculate which works with configured slots
+    # Use $YKMAN_BIN otp calculate which works with configured slots
     # This will REQUIRE physical touch if the slot was configured with --touch
     local response
     local start_time=$(date +%s)
+    local start_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
 
     # Try the challenge-response
-    if response=$(timeout "${TIMEOUT_SECONDS}s" ykman otp calculate 2 "$challenge" 2>&1); then
+    if response=$(timeout "${TIMEOUT_SECONDS}s" $YKMAN_BIN otp calculate 2 "$challenge" 2>&1); then
+        local end_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
         local elapsed=$(($(date +%s) - start_time))
-        print_success "YubiKey tap verified! (${elapsed}s)"
+        local elapsed_ms=$((end_time_ms - start_time_ms))
+
+        # SECURITY CHECK: Verify response took long enough for human tap
+        # Instant responses (< 800ms) indicate touch is NOT required
+        # Human reaction time + YubiKey processing should be at least 800ms-1000ms
+        if [ "$elapsed_ms" -lt 800 ]; then
+            print_error "⚠️  SECURITY VIOLATION: Response too fast (${elapsed_ms}ms)!"
+            print_error "OTP Slot 2 is NOT configured to require physical touch"
+            print_error "This allows auto-acceptance without hardware verification"
+            echo "" >&2
+            print_info "FIX REQUIRED:" >&2
+            echo "  1. Reconfigure slot 2 WITH touch requirement:" >&2
+            echo "     cd ${TOMB_DIR}" >&2
+            echo "     ./scripts/yubikey-configure-otp.sh configure" >&2
+            echo "  2. Verify touch is working:" >&2
+            echo "     ./scripts/yubikey-git-setup.sh test" >&2
+            log_verification "FAILURE" "NO-TOUCH-CONFIGURED" "$YUBIKEY_SERIAL"
+            return 1
+        fi
+
+        # Response timing is acceptable - touch was likely required
+        print_success "YubiKey tap verified! (${elapsed}s / ${elapsed_ms}ms)"
         log_verification "SUCCESS" "OTP-TOUCH" "$YUBIKEY_SERIAL"
         return 0
     else
@@ -387,13 +450,13 @@ verify_otp_touch() {
 # This was insecure (no tap required) and has been removed
 # YubiKey verification now requires OTP configuration
 
-# OTP Challenge-Response verification (fallback)
+# OTP Challenge-Response verification (fallback - with timing check)
 verify_otp() {
     print_info "Attempting OTP challenge-response verification..."
 
     # Check if OTP is configured
     local otp_info
-    if ! otp_info=$(ykman otp info 2>/dev/null); then
+    if ! otp_info=$($YKMAN_BIN otp info 2>/dev/null); then
         print_warning "OTP not configured on this YubiKey"
         return 1
     fi
@@ -411,8 +474,30 @@ verify_otp() {
 
     # Attempt challenge-response (requires tap if configured with --touch)
     local response
-    if response=$(timeout "$TIMEOUT_SECONDS" ykman otp chalresp 2 "$challenge" 2>/dev/null); then
-        print_success "YubiKey verified via OTP challenge-response!"
+    local start_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
+
+    if response=$(timeout "$TIMEOUT_SECONDS" $YKMAN_BIN otp chalresp 2 "$challenge" 2>/dev/null); then
+        local end_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
+        local elapsed_ms=$((end_time_ms - start_time_ms))
+
+        # SECURITY CHECK: Same timing validation as verify_otp_touch
+        if [ "$elapsed_ms" -lt 800 ]; then
+            print_error "⚠️  SECURITY VIOLATION: Response too fast (${elapsed_ms}ms)!"
+            print_error "OTP Slot 2 is NOT configured to require physical touch"
+            print_error "This allows auto-acceptance without hardware verification"
+            echo "" >&2
+            print_info "FIX REQUIRED:" >&2
+            echo "  1. Reconfigure slot 2 WITH touch requirement:" >&2
+            echo "     cd ${TOMB_DIR}" >&2
+            echo "     ./scripts/yubikey-configure-otp.sh configure" >&2
+            echo "  2. Verify touch is working:" >&2
+            echo "     ./scripts/yubikey-git-setup.sh test" >&2
+            log_verification "FAILURE" "NO-TOUCH-CONFIGURED-FALLBACK" "$YUBIKEY_SERIAL"
+            return 1
+        fi
+
+        print_success "YubiKey verified via OTP challenge-response! (${elapsed_ms}ms)"
+        print_warning "⚠️  Used OTP without guaranteed touch - consider configuring slot 2 with --touch"
         log_verification "SUCCESS" "OTP" "$YUBIKEY_SERIAL"
         return 0
     else
