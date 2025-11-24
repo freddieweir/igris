@@ -24,6 +24,41 @@ global:
   prefix_sound_security: assets/audio/DSGNBass-one-shot_sample_of_a-Elevenlabs.wav # Warning tone for security alerts
   prefix_sound_default: assets/audio/DSGNBass-one-shot_sample_of_a-Elevenlabs.wav  # Fallback (current voice)
 
+# State-based audio alerts (NEW: result feedback after verification)
+# Play audio to indicate verification completion or specific error conditions
+states:
+  completion:
+    enabled: true  # Play audio after successful verification
+    sound: assets/audio/states/verification-complete.wav
+    fallback_system_sound: Hero  # macOS system sound if file missing
+
+  cached:
+    enabled: true  # Play audio when using cached verification (within 5-second window)
+    sound: assets/audio/states/verification-cached.wav
+    fallback_system_sound: Tink  # Quieter sound for cache hits
+    use_completion_fallback: true  # If cached sound missing, use completion sound instead
+
+  errors:
+    timeout:
+      enabled: true  # Play when YubiKey tap timeout (10 seconds elapsed)
+      sound: assets/audio/states/error-timeout.wav
+      fallback_system_sound: Basso  # Error sound
+
+    no_yubikey:
+      enabled: true  # Play when YubiKey not detected/connected
+      sound: assets/audio/states/error-no-yubikey.wav
+      fallback_system_sound: Sosumi  # Hardware alert sound
+
+    verification_failed:
+      enabled: true  # Play when challenge-response fails
+      sound: assets/audio/states/error-verification-failed.wav
+      fallback_system_sound: Funk  # Security alert
+
+    timing_violation:
+      enabled: true  # Play when response too fast (< 800ms, no touch configured)
+      sound: assets/audio/states/error-timing-violation.wav
+      fallback_system_sound: Sosumi  # Serious configuration error
+
 # Command-specific audio mappings
 # Format: {command}: {audio_file_path}
 # Paths are relative to TOMB_DIR
