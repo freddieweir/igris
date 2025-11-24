@@ -511,7 +511,15 @@ cleanup_verification_cache() {
     local temp_file="${cache_file}.tmp"
 
     # Filter out entries older than cache window
-    while IFS='|' read -r timestamp hash operation serial; do
+    while IFS='|' read -r timestamp hash operation serial || [[ -n "$timestamp" ]]; do
+        # Skip empty or malformed lines
+        if [ -z "$timestamp" ] || [ -z "$hash" ] || [ -z "$operation" ] || [ -z "$serial" ]; then
+            continue
+        fi
+        # Validate timestamp is numeric
+        if ! [[ "$timestamp" =~ ^[0-9]+$ ]]; then
+            continue
+        fi
         local age=$((current_time - timestamp))
         if [ "$age" -lt "$cache_window" ]; then
             echo "${timestamp}|${hash}|${operation}|${serial}" >> "$temp_file"
@@ -555,7 +563,15 @@ check_verification_cache() {
     local current_time=$(date +%s)
 
     # Search for matching entry within time window
-    while IFS='|' read -r timestamp hash operation serial; do
+    while IFS='|' read -r timestamp hash operation serial || [[ -n "$timestamp" ]]; do
+        # Skip empty or malformed lines
+        if [ -z "$timestamp" ] || [ -z "$hash" ] || [ -z "$operation" ] || [ -z "$serial" ]; then
+            continue
+        fi
+        # Validate timestamp is numeric
+        if ! [[ "$timestamp" =~ ^[0-9]+$ ]]; then
+            continue
+        fi
         local age=$((current_time - timestamp))
 
         # Check if entry matches current context and is within window
@@ -589,8 +605,12 @@ cache_successful_verification() {
     local timestamp=$(date +%s)
     local serial="${YUBIKEY_SERIAL:-unknown}"
 
+    # Sanitize operation field - remove pipe chars and newlines to prevent cache corruption
+    # Extract just the command type (e.g., "git push", "gh pr create") without arguments
+    local sanitized_operation=$(echo "${OPERATION:-unknown}" | tr '|' '_' | tr '\n' ' ' | cut -c1-100)
+
     # Append to cache file
-    echo "${timestamp}|${verification_hash}|${OPERATION}|${serial}" >> "$cache_file"
+    echo "${timestamp}|${verification_hash}|${sanitized_operation}|${serial}" >> "$cache_file"
     chmod 600 "$cache_file"  # Ensure user-only permissions
 
     print_info "Verification cached for 5 seconds"
