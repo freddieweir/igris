@@ -19,6 +19,20 @@ verification:
     require_1password_cli: true  # Require 1Password CLI for Touch ID
     priority: 2                # Try after YubiKey OTP with touch (1)
 
+  cache:
+    enabled: true              # Enable verification caching (reduces double-tap)
+    window_seconds: 5          # Cache validity window (conservative for security)
+    cache_file: ~/.tomb-verification-cache
+    # How it works:
+    #   - After successful YubiKey tap, verification is cached for 5 seconds
+    #   - Subsequent verifications (e.g., git hook after wrapper) reuse cache
+    #   - Cache includes operation context (repo + operation + remote)
+    #   - Prevents bypass by requiring YubiKey serial match
+    # Security:
+    #   - Short window minimizes attack surface
+    #   - Context-specific (different repos/operations don't reuse)
+    #   - Cryptographic hash prevents cache replay attacks
+
   challenge_length: 32         # Bytes for challenge generation
   log_verifications: true      # Log all verification attempts
 

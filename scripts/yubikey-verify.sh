@@ -316,6 +316,115 @@ play_bypass_alert() {
     fi
 }
 
+# Play state-based audio alert (completion, cached, errors)
+play_state_audio() {
+    local state_type="$1"  # completion, cached, timeout, no_yubikey, verification_failed, timing_violation
+
+    if [ ! -f "$AUDIO_CONFIG" ]; then
+        return 0
+    fi
+
+    # Parse state audio configuration from YAML
+    # States section format:
+    # states:
+    #   completion:
+    #     enabled: true
+    #     sound: assets/audio/states/verification-complete.wav
+    #     fallback_system_sound: Hero
+
+    local config_section=""
+    if [ "$state_type" = "completion" ] || [ "$state_type" = "cached" ]; then
+        config_section="states.$state_type"
+    else
+        # Error states are nested under states.errors
+        config_section="states.errors.$state_type"
+    fi
+
+    # Check if state audio is enabled (search for enabled: true under the state section)
+    # We need to find the correct section and check its enabled flag
+    local in_section=0
+    local enabled="false"
+    local sound_file=""
+    local fallback_sound=""
+    local use_completion_fallback="false"
+
+    while IFS= read -r line; do
+        # Detect if we're entering states section
+        if [[ "$line" =~ ^states: ]]; then
+            in_section=1
+            continue
+        fi
+
+        # Exit states section if we hit another top-level section
+        if [ $in_section -eq 1 ] && [[ "$line" =~ ^[a-z_]+: ]] && [[ ! "$line" =~ ^[[:space:]] ]]; then
+            break
+        fi
+
+        # Match state type subsection
+        if [ $in_section -eq 1 ]; then
+            if [ "$state_type" = "completion" ] && [[ "$line" =~ ^[[:space:]]+completion: ]]; then
+                in_section=2
+            elif [ "$state_type" = "cached" ] && [[ "$line" =~ ^[[:space:]]+cached: ]]; then
+                in_section=2
+            elif [[ "$line" =~ ^[[:space:]]+errors: ]]; then
+                in_section=3
+            elif [ $in_section -eq 3 ]; then
+                if [ "$state_type" = "timeout" ] && [[ "$line" =~ ^[[:space:]]+timeout: ]]; then
+                    in_section=4
+                elif [ "$state_type" = "no_yubikey" ] && [[ "$line" =~ ^[[:space:]]+no_yubikey: ]]; then
+                    in_section=4
+                elif [ "$state_type" = "verification_failed" ] && [[ "$line" =~ ^[[:space:]]+verification_failed: ]]; then
+                    in_section=4
+                elif [ "$state_type" = "timing_violation" ] && [[ "$line" =~ ^[[:space:]]+timing_violation: ]]; then
+                    in_section=4
+                fi
+            fi
+        fi
+
+        # Extract configuration values when in correct section
+        if [ $in_section -eq 2 ] || [ $in_section -eq 4 ]; then
+            if [[ "$line" =~ enabled:[[:space:]]*([a-z]+) ]]; then
+                enabled="${BASH_REMATCH[1]}"
+            elif [[ "$line" =~ sound:[[:space:]]*(.+) ]]; then
+                sound_file=$(echo "${BASH_REMATCH[1]}" | sed 's/#.*//' | xargs)
+            elif [[ "$line" =~ fallback_system_sound:[[:space:]]*([A-Za-z]+) ]]; then
+                fallback_sound=$(echo "${BASH_REMATCH[1]}" | sed 's/#.*//' | xargs)
+            elif [[ "$line" =~ use_completion_fallback:[[:space:]]*([a-z]+) ]]; then
+                use_completion_fallback="${BASH_REMATCH[1]}"
+            fi
+        fi
+    done < "$AUDIO_CONFIG"
+
+    # If not enabled, return
+    if [ "$enabled" != "true" ]; then
+        return 0
+    fi
+
+    # Resolve sound file path (relative to TOMB_DIR)
+    if [ -n "$sound_file" ]; then
+        if [[ ! "$sound_file" =~ ^[/~] ]]; then
+            sound_file="${TOMB_DIR}/${sound_file}"
+        fi
+        sound_file="${sound_file/#\~/$HOME}"
+    fi
+
+    # Play audio
+    if [ -f "$sound_file" ]; then
+        afplay "$sound_file" &>/dev/null &
+    elif [ "$state_type" = "cached" ] && [ "$use_completion_fallback" = "true" ]; then
+        # Try completion sound as fallback for cached
+        local completion_sound="${TOMB_DIR}/assets/audio/states/verification-complete.wav"
+        if [ -f "$completion_sound" ]; then
+            afplay "$completion_sound" &>/dev/null &
+        elif [ -n "$fallback_sound" ]; then
+            afplay "/System/Library/Sounds/${fallback_sound}.aiff" &>/dev/null &
+        fi
+    elif [ -n "$fallback_sound" ]; then
+        # Use system sound fallback
+        afplay "/System/Library/Sounds/${fallback_sound}.aiff" &>/dev/null &
+    fi
+}
+
 # Detect YubiKey presence
 detect_yubikey() {
     # Uses global YKMAN_BIN variable set at script initialization
@@ -363,6 +472,133 @@ check_otp_touch_configured() {
     # We'll do a timing check during actual verification
     return 0
 }
+
+# ============================================================================
+# VERIFICATION CACHING FUNCTIONS (5-Second Window)
+# ============================================================================
+# These functions implement a short-lived verification cache to prevent
+# double-tapping when both shell wrapper and git hook verify the same operation.
+# Cache is valid for 5 seconds and includes operation context for security.
+
+# Generate cryptographic hash for operation context
+generate_verification_hash() {
+    local repo_path="${PWD}"
+    local operation="${OPERATION:-unknown}"
+    local yubikey_serial="${YUBIKEY_SERIAL:-unknown}"
+
+    # Get git remote URL if in a git repository (for context specificity)
+    local remote_url="none"
+    if git remote get-url origin &>/dev/null; then
+        remote_url=$(git remote get-url origin 2>/dev/null || echo "none")
+    fi
+
+    # Create hash from: repo + operation + remote + serial
+    # Different repos/operations won't reuse cache
+    local context="${repo_path}|${operation}|${remote_url}|${yubikey_serial}"
+    echo -n "$context" | shasum -a 256 | awk '{print $1}'
+}
+
+# Cleanup stale cache entries (older than cache window)
+cleanup_verification_cache() {
+    local cache_file="${1:-${HOME}/.tomb-verification-cache}"
+    local cache_window="${2:-5}"  # Default 5 seconds
+
+    if [ ! -f "$cache_file" ]; then
+        return 0
+    fi
+
+    local current_time=$(date +%s)
+    local temp_file="${cache_file}.tmp"
+
+    # Filter out entries older than cache window
+    while IFS='|' read -r timestamp hash operation serial; do
+        local age=$((current_time - timestamp))
+        if [ "$age" -lt "$cache_window" ]; then
+            echo "${timestamp}|${hash}|${operation}|${serial}" >> "$temp_file"
+        fi
+    done < "$cache_file"
+
+    # Replace cache file with cleaned version
+    if [ -f "$temp_file" ]; then
+        mv "$temp_file" "$cache_file"
+        chmod 600 "$cache_file"  # Ensure user-only permissions
+    else
+        # No valid entries remain
+        rm -f "$cache_file"
+    fi
+}
+
+# Check if recent verification exists in cache
+check_verification_cache() {
+    # Read cache settings from config
+    local cache_enabled=$(grep -A 10 "cache:" "$CONFIG_FILE" 2>/dev/null | grep "enabled:" | head -1 | sed 's/#.*//' | awk '{print $2}')
+    if [ "$cache_enabled" != "true" ]; then
+        return 1  # Cache disabled
+    fi
+
+    local cache_window=$(grep -A 10 "cache:" "$CONFIG_FILE" 2>/dev/null | grep "window_seconds:" | head -1 | sed 's/#.*//' | awk '{print $2}')
+    cache_window="${cache_window:-5}"
+
+    local cache_file=$(grep -A 10 "cache:" "$CONFIG_FILE" 2>/dev/null | grep "cache_file:" | head -1 | sed 's/#.*//' | awk '{print $2}')
+    cache_file="${cache_file/#\~/$HOME}"
+    cache_file="${cache_file:-${HOME}/.tomb-verification-cache}"
+
+    # Cleanup stale entries first
+    cleanup_verification_cache "$cache_file" "$cache_window"
+
+    if [ ! -f "$cache_file" ]; then
+        return 1  # No cache file exists
+    fi
+
+    # Generate hash for current operation
+    local current_hash=$(generate_verification_hash)
+    local current_time=$(date +%s)
+
+    # Search for matching entry within time window
+    while IFS='|' read -r timestamp hash operation serial; do
+        local age=$((current_time - timestamp))
+
+        # Check if entry matches current context and is within window
+        if [ "$hash" = "$current_hash" ] && [ "$age" -lt "$cache_window" ]; then
+            # Verify YubiKey serial matches (prevents key swap attacks)
+            if [ "$serial" = "${YUBIKEY_SERIAL:-unknown}" ]; then
+                print_success "Using cached verification (${age}s ago, ${cache_window}s window)"
+                log_verification "SUCCESS" "CACHED" "$serial"
+                return 0  # Cache hit
+            fi
+        fi
+    done < "$cache_file"
+
+    return 1  # No valid cache entry found
+}
+
+# Cache successful verification
+cache_successful_verification() {
+    # Read cache settings
+    local cache_enabled=$(grep -A 10 "cache:" "$CONFIG_FILE" 2>/dev/null | grep "enabled:" | head -1 | sed 's/#.*//' | awk '{print $2}')
+    if [ "$cache_enabled" != "true" ]; then
+        return 0  # Cache disabled
+    fi
+
+    local cache_file=$(grep -A 10 "cache:" "$CONFIG_FILE" 2>/dev/null | grep "cache_file:" | head -1 | sed 's/#.*//' | awk '{print $2}')
+    cache_file="${cache_file/#\~/$HOME}"
+    cache_file="${cache_file:-${HOME}/.tomb-verification-cache}"
+
+    # Generate verification hash
+    local verification_hash=$(generate_verification_hash)
+    local timestamp=$(date +%s)
+    local serial="${YUBIKEY_SERIAL:-unknown}"
+
+    # Append to cache file
+    echo "${timestamp}|${verification_hash}|${OPERATION}|${serial}" >> "$cache_file"
+    chmod 600 "$cache_file"  # Ensure user-only permissions
+
+    print_info "Verification cached for 5 seconds"
+}
+
+# ============================================================================
+# END VERIFICATION CACHING FUNCTIONS
+# ============================================================================
 
 # OTP Challenge-Response verification with REQUIRED physical touch
 verify_otp_touch() {
@@ -415,6 +651,7 @@ verify_otp_touch() {
         # Instant responses (< 800ms) indicate touch is NOT required
         # Human reaction time + YubiKey processing should be at least 800ms-1000ms
         if [ "$elapsed_ms" -lt 800 ]; then
+            play_state_audio "timing_violation"
             print_error "⚠️  SECURITY VIOLATION: Response too fast (${elapsed_ms}ms)!"
             print_error "OTP Slot 2 is NOT configured to require physical touch"
             print_error "This allows auto-acceptance without hardware verification"
@@ -436,9 +673,11 @@ verify_otp_touch() {
     else
         # Check if it was a timeout or other error
         if [[ "$response" =~ "timeout" ]] || [ $(($(date +%s) - start_time)) -ge $TIMEOUT_SECONDS ]; then
+            play_state_audio "timeout"
             print_error "Timeout waiting for YubiKey tap"
             log_verification "TIMEOUT" "OTP-TOUCH" "$YUBIKEY_SERIAL"
         else
+            play_state_audio "verification_failed"
             print_error "YubiKey verification failed: $response"
             log_verification "FAILURE" "OTP-TOUCH" "$YUBIKEY_SERIAL"
         fi
@@ -482,6 +721,7 @@ verify_otp() {
 
         # SECURITY CHECK: Same timing validation as verify_otp_touch
         if [ "$elapsed_ms" -lt 800 ]; then
+            play_state_audio "timing_violation"
             print_error "⚠️  SECURITY VIOLATION: Response too fast (${elapsed_ms}ms)!"
             print_error "OTP Slot 2 is NOT configured to require physical touch"
             print_error "This allows auto-acceptance without hardware verification"
@@ -501,6 +741,7 @@ verify_otp() {
         log_verification "SUCCESS" "OTP" "$YUBIKEY_SERIAL"
         return 0
     else
+        play_state_audio "timeout"
         print_error "OTP verification failed or timeout"
         log_verification "TIMEOUT" "OTP" "$YUBIKEY_SERIAL"
         return 1
@@ -523,6 +764,7 @@ main() {
     # Detect YubiKey
     if ! detect_yubikey; then
         log_verification "FAILURE" "no_device" "n/a"
+        play_state_audio "no_yubikey"
         print_error "Cannot proceed without YubiKey"
         echo "" >&2
         print_info "Recovery options:" >&2
@@ -539,18 +781,33 @@ main() {
         print_success "YubiKey detected: Serial ******${YUBIKEY_SERIAL: -2}"
     fi
 
+    # Check verification cache (5-second window)
+    if check_verification_cache; then
+        # Cache hit - verification from recent tap
+        print_success "✅ Verification successful (cached)! Proceeding with ${OPERATION}"
+        play_state_audio "cached"
+        exit 0
+    fi
+
+    # Cache miss - need fresh verification
+    print_info "No recent verification in cache, requesting YubiKey tap..."
+
     # Try verification methods in priority order (most secure first)
     # 1. OTP with required physical touch (SECURE - REQUIRED)
     if verify_otp_touch; then
+        cache_successful_verification
         print_success "✅ Verification successful! Proceeding with ${OPERATION}"
+        play_state_audio "completion"
         exit 0
     fi
 
     # 2. OTP without guaranteed touch (LESS SECURE but acceptable)
     print_warning "OTP touch verification not available, trying OTP without touch..."
     if verify_otp; then
+        cache_successful_verification
         print_warning "⚠️  Used OTP without guaranteed touch - consider configuring slot 2 with --touch"
         print_success "Verification successful! Proceeding with ${OPERATION}"
+        play_state_audio "completion"
         exit 0
     fi
 
