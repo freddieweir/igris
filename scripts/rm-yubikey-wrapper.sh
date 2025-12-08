@@ -89,8 +89,18 @@ targets_protected_path() {
                         fi
                         ;;
                     "$HOME")
+                        # Protect home directory and its direct children
+                        # $HOME = dangerous, $HOME/foo = dangerous, $HOME/foo/bar = safe
                         if [[ "$arg" == "$HOME" ]] || [[ "$arg" == "$HOME/" ]]; then
-                            return 0  # Dangerous: targeting home directory
+                            return 0  # Dangerous: targeting home directory directly
+                        fi
+                        # Check if targeting direct child of home (e.g., ~/Documents, ~/git)
+                        if [[ "$arg" == "$HOME/"* ]]; then
+                            # Count slashes after $HOME - if only one more, it's a direct child
+                            local after_home="${arg#$HOME/}"
+                            if [[ "$after_home" != *"/"* ]]; then
+                                return 0  # Dangerous: targeting direct child of home
+                            fi
                         fi
                         ;;
                 esac
