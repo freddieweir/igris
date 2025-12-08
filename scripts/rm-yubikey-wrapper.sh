@@ -37,13 +37,20 @@ PROTECTED_PATHS=(
 )
 
 # Environment detection (main machine vs VM)
+# Uses portable detection without hardcoded usernames
 detect_environment() {
-    if [[ "$HOME" == $HOME ]]; then
-        echo "main"
-    elif [[ "$HOME" == $HOME ]] || [[ "${PWD:-}" == /Volumes/* ]]; then
+    # VM indicators:
+    # 1. Working directory is on a mounted volume (shared from another machine)
+    # 2. Username ends with "vm" (convention for VM user accounts)
+    # 3. TOMB_ENVIRONMENT explicitly set
+    if [[ -n "${TOMB_ENVIRONMENT:-}" ]]; then
+        echo "$TOMB_ENVIRONMENT"
+    elif [[ "${PWD:-}" == /Volumes/* ]]; then
+        echo "vm"
+    elif [[ "$(whoami)" == *vm ]]; then
         echo "vm"
     else
-        echo "unknown"
+        echo "main"
     fi
 }
 
