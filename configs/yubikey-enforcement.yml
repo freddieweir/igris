@@ -87,6 +87,43 @@ integration:
     - $GIT_ROOT/internal/repos/EchoLink-Reborn
     - $GIT_ROOT/internal/repos/carian-constellation
 
+# Dangerous Shell Command Protection
+# Extends YubiKey verification to destructive shell commands (rm -rf, etc.)
+dangerous_commands:
+  enabled: true
+  environment: main_only       # main_only | all (VM passes through)
+  # main_only: Only enforce on main machine (/Users/fweir)
+  # all: Enforce everywhere (not recommended - VM is sandbox)
+
+  rm:
+    enabled: true
+    # Dangerous flag patterns that trigger verification
+    dangerous_patterns:
+      - "-rf"                  # rm -rf anything
+      - "-r.*-f"               # rm -r with -f anywhere
+      - "-fr"                  # rm -fr variant
+      - "-f.*-r"               # rm -f with -r anywhere
+    # Protected paths - operations targeting these require verification
+    protected_paths:
+      - "/"                    # root
+      - "~"                    # home (literal tilde)
+      - "$HOME"                # home expanded
+      - "/Users"               # all users
+      - "/System"              # macOS system
+      - "/usr"                 # unix system
+      - "/opt"                 # homebrew root
+      - "/Applications"        # macOS apps
+      - "/Library"             # system library
+    protection_level: required # required | warn_only
+
+  # Future: Additional commands can be added here
+  # sudo:
+  #   enabled: false
+  #   dangerous_subcommands: [rm, chmod, chown, dd, mkfs]
+  # chmod:
+  #   enabled: false
+  #   dangerous_patterns: ["777", "-R.*777", "000"]
+
 devices:
   # Multiple YubiKeys can be registered for redundancy
   allowed_serials:
