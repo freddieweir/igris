@@ -5,7 +5,7 @@
 enforcement:
   enabled: true                # Master switch for YubiKey enforcement
   require_tap: true            # Require physical tap (vs just presence)
-  timeout_seconds: 10          # How long to wait for tap
+  timeout_seconds: 30          # How long to wait for tap
   retry_attempts: 3            # Failed attempts before lockout warning
 
 verification:
