@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # Configuration
-TIMEOUT_SECONDS="${YUBIKEY_TIMEOUT:-10}"
+TIMEOUT_SECONDS="${YUBIKEY_TIMEOUT:-30}"
 LOG_FILE="${HOME}/.tomb-yubikey-verifications.log"
 TOMB_DIR="${TOMB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 CONFIG_FILE="${TOMB_DIR}/configs/yubikey-enforcement.yml"
