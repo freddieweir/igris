@@ -37,13 +37,20 @@ PROTECTED_PATHS=(
 )
 
 # Environment detection (main machine vs VM)
+# Uses portable detection without hardcoded usernames
 detect_environment() {
-    if [[ "$HOME" == /Users/fweir ]]; then
-        echo "main"
-    elif [[ "$HOME" == /Users/fweirvm ]] || [[ "${PWD:-}" == /Volumes/* ]]; then
+    # VM indicators:
+    # 1. Working directory is on a mounted volume (shared from another machine)
+    # 2. Username ends with "vm" (convention for VM user accounts)
+    # 3. TOMB_ENVIRONMENT explicitly set
+    if [[ -n "${TOMB_ENVIRONMENT:-}" ]]; then
+        echo "$TOMB_ENVIRONMENT"
+    elif [[ "${PWD:-}" == /Volumes/* ]]; then
+        echo "vm"
+    elif [[ "$(whoami)" == *vm ]]; then
         echo "vm"
     else
-        echo "unknown"
+        echo "main"
     fi
 }
 
@@ -71,7 +78,7 @@ targets_protected_path() {
         # Exact match or starts with protected path
         if [[ "$args" == *"$path"* ]] || [[ "$args" == *"$path/"* ]]; then
             # Exclude legitimate subdirectories deep within protected areas
-            # e.g., /Users/fweir/git/project is OK, /Users alone is not
+            # e.g., $HOME/git/project is OK, /Users alone is not
             local safe_depth=0
             for arg in $args; do
                 # Skip flags
@@ -81,7 +88,7 @@ targets_protected_path() {
                 local depth=$(echo "$arg" | tr '/' '\n' | wc -l)
 
                 # If targeting root-level protected paths (depth <= 3), it's dangerous
-                # /Users = 2, /Users/fweir = 3, /Users/fweir/git = 4 (OK)
+                # /Users = 2, $HOME = 3, $HOME/git = 4 (OK)
                 case "$path" in
                     "/"|"/Users"|"/System"|"/usr"|"/opt"|"/Applications"|"/Library"|"/bin"|"/sbin"|"/var"|"/private")
                         if [[ "$arg" == "$path" ]] || [[ "$arg" == "$path/" ]]; then
