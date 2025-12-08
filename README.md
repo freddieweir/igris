@@ -15,8 +15,11 @@ _Naming scheme derived from Solo Leveling because I decided why not ([Image Sour
 ### What Igris Provides
 
 - **Hardware Verification Enforcement** - YubiKey tap OR Touch ID via 1Password CLI
-- **Command-Specific Audio Alerts** - Modular voice notifications for each git operation
+- **Git/GitHub Protection** - All network operations require hardware verification
+- **Dangerous Command Protection** - Block `rm -rf ~/` and similar catastrophic commands
+- **Command-Specific Audio Alerts** - Modular voice notifications for each operation
 - **Defense-in-Depth Architecture** with multiple enforcement layers preventing bypass
+- **Environment-Aware** - Main machine protection, VM pass-through for sandboxed work
 - **Flexible Authentication** - Use YubiKey (most secure) or Touch ID (convenient alternative)
 - **Cryptographic Verification** via HMAC-SHA1 challenge-response with touch requirement
 - **Bypass Detection Alerts** - Audio warnings when enforcement is disabled
@@ -28,10 +31,13 @@ _Naming scheme derived from Solo Leveling because I decided why not ([Image Sour
 - `git push`, `git pull`, `git fetch`, `git clone`
 - `git remote add/update/set-url`, `git submodule update --remote`
 - `gh pr create/merge`, `gh release create`, `gh repo clone`, `gh workflow run`
+- `rm -rf /`, `rm -rf ~`, `rm -rf /Users/*` (with `--dangerous-commands` flag)
 
 **Pass-Through Operations (No Tap):**
 - `git commit`, `git status`, `git log`, `git diff`
 - All read-only and local operations
+- `rm` commands not targeting protected paths
+- All commands in VM environments (sandbox mode)
 
 <details>
 <summary><strong>🏗️ Architecture</strong></summary>
@@ -626,20 +632,24 @@ igris/
 │   ├── yubikey-verify.sh            # Core verification logic + audio
 │   ├── git-yubikey-wrapper.sh       # Git command wrapper
 │   ├── gh-yubikey-wrapper.sh        # GitHub CLI wrapper
-│   ├── hardware-git-setup.sh         # Management CLI
-│   └── yubikey-configure-otp.sh     # YubiKey OTP configuration
+│   ├── rm-yubikey-wrapper.sh        # Dangerous rm command wrapper
+│   ├── hardware-git-setup.sh        # Management CLI
+│   ├── yubikey-configure-otp.sh     # YubiKey OTP configuration
+│   └── test-rm-protection.sh        # Test suite for rm protection
 ├── hooks/
 │   └── git-hooks/
 │       └── pre-push                  # Pre-push hook template
 ├── configs/
-│   ├── yubikey-enforcement.yml       # Main configuration file
-│   └── audio-alerts.yml              # Audio alert mappings
+│   ├── yubikey-enforcement.yml       # Main configuration file (includes dangerous_commands)
+│   └── audio-alerts.yml              # Audio alert mappings (includes dangerous commands)
 ├── assets/
 │   └── audio/
 │       ├── README.md                 # Audio setup guide
-│       ├── prefix-*.wav              # Modular prefix clip
+│       ├── prefix-*.wav              # Modular prefix clips
 │       ├── action-*.wav              # Modular action clips
-│       └── bypass-detected.wav       # Security alert sound
+│       ├── bypass-detected.wav       # Security alert sound
+│       └── dangerous/                # Dangerous command audio files
+│           └── README.md             # Voice generation guide
 └── README.md                         # This file
 ```
 
