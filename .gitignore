@@ -25,6 +25,7 @@ tmp/
 
 # Private development planning (OPSEC - keep internal strategies private)
 todos/
+tasks/
 
 # Repository-specific Claude Code configuration (gitignored for OPSEC)
 CLAUDE.md

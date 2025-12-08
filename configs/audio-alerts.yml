@@ -170,3 +170,37 @@ onepassword:
 #
 # Security alerts:
 #   bypass-detected.wav: "Warning: YubiKey enforcement has been bypassed"
+
+# Dangerous shell command protection
+# Audio alerts for destructive operations (rm -rf, etc.)
+dangerous_commands:
+  enabled: true
+  prefix_sound: assets/audio/dangerous/prefix-dangerous-operation.wav  # "YubiKey tap required for dangerous operation"
+  category: security  # Uses prefix_sound_security tone
+
+  rm:
+    enabled: true
+    modular_audio: assets/audio/dangerous/action-rm.wav  # Just "remove"
+    description: "Dangerous rm operation (rm -rf targeting protected paths)"
+
+  # Future commands (uncomment when adding support)
+  # sudo:
+  #   enabled: false
+  #   modular_audio: assets/audio/dangerous/action-sudo.wav  # Just "sudo"
+  #   description: "Privileged command execution"
+  #
+  # chmod:
+  #   enabled: false
+  #   modular_audio: assets/audio/dangerous/action-chmod.wav  # Just "chmod"
+  #   description: "Dangerous chmod operation"
+
+# Voice clip generation guide for dangerous commands:
+# Using ElevenLabs with authoritative/warning tone:
+#
+# Prefix:
+#   prefix-dangerous-operation.wav: "YubiKey tap required for dangerous operation"
+#     Tone: Serious, warning (not urgent panic, but firm)
+#
+# Actions:
+#   action-rm.wav: "remove"
+#     Tone: Clear, final (this is destructive)

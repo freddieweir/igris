@@ -11,6 +11,7 @@ TOMB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERIFY_SCRIPT="${TOMB_DIR}/scripts/yubikey-verify.sh"
 GIT_WRAPPER="${TOMB_DIR}/scripts/git-yubikey-wrapper.sh"
 GH_WRAPPER="${TOMB_DIR}/scripts/gh-yubikey-wrapper.sh"
+RM_WRAPPER="${TOMB_DIR}/scripts/rm-yubikey-wrapper.sh"
 PRE_PUSH_HOOK="${TOMB_DIR}/hooks/git-hooks/pre-push"
 CONFIG_FILE="${TOMB_DIR}/configs/yubikey-enforcement.yml"
 BACKUP_DIR="${HOME}/.tomb-yubikey-backup"
@@ -64,17 +65,19 @@ COMMANDS:
     test        Test YubiKey verification
 
 OPTIONS:
-    --global        Apply to user shell config (default)
-    --all-repos     Install hooks in all workspace repos
-    --repo <path>   Target specific repository
-    --non-interactive  Skip prompts and use defaults
+    --global             Apply to user shell config (default)
+    --all-repos          Install hooks in all workspace repos
+    --repo <path>        Target specific repository
+    --non-interactive    Skip prompts and use defaults
+    --dangerous-commands Install rm wrapper for dangerous command protection
 
 EXAMPLES:
-    $(basename "$0") setup              # Interactive setup with prompts
-    $(basename "$0") setup --all-repos  # Install + add hooks to all repos
-    $(basename "$0") status             # Check current status
-    $(basename "$0") disable            # Temporarily disable (keep config)
-    $(basename "$0") test               # Test YubiKey verification
+    $(basename "$0") setup                        # Interactive setup with prompts
+    $(basename "$0") setup --all-repos            # Install + add hooks to all repos
+    $(basename "$0") setup --dangerous-commands   # Also protect dangerous rm commands
+    $(basename "$0") status                       # Check current status
+    $(basename "$0") disable                      # Temporarily disable (keep config)
+    $(basename "$0") test                         # Test YubiKey verification
 
 EOF
 }
@@ -217,6 +220,7 @@ detect_shell_config() {
 cmd_setup() {
     local interactive=true
     local install_all_repos=false
+    local install_dangerous_commands=false
 
     # Parse options
     while [[ $# -gt 0 ]]; do
@@ -227,6 +231,10 @@ cmd_setup() {
                 ;;
             --all-repos)
                 install_all_repos=true
+                shift
+                ;;
+            --dangerous-commands)
+                install_dangerous_commands=true
                 shift
                 ;;
             *)
@@ -328,6 +336,19 @@ EOF
         print_success "Shell wrappers installed"
     fi
 
+    # Install dangerous commands wrapper (rm) if requested
+    if [ "$install_dangerous_commands" = true ]; then
+        install_rm_wrapper "$shell_config"
+    elif [ "$interactive" = true ]; then
+        echo ""
+        print_info "Dangerous command protection (rm -rf) is available."
+        if confirm_action "Also install protection for dangerous rm commands?" "no"; then
+            install_rm_wrapper "$shell_config"
+        else
+            print_info "Skipped rm protection (you can add later with --dangerous-commands)"
+        fi
+    fi
+
     # Setup git global hooks
     print_info "Setting up git global hooks..."
 
@@ -427,6 +448,34 @@ EOF
     print_info "To check status anytime: $(basename "$0") status"
     print_info "To remove completely: $(basename "$0") remove"
     echo ""
+}
+
+# Install rm wrapper for dangerous command protection
+install_rm_wrapper() {
+    local shell_config="$1"
+
+    print_info "Installing dangerous rm command protection..."
+
+    # Check if already installed
+    if grep -q "Dangerous rm Protection" "$shell_config" 2>/dev/null; then
+        print_warning "rm wrapper already installed in $shell_config"
+        return 0
+    fi
+
+    cat >> "$shell_config" << EOF
+
+# Dangerous rm Protection (managed by igris)
+# Requires YubiKey tap for dangerous rm operations (rm -rf /, rm -rf ~, etc.)
+# Only enforces on main machine - VM environments pass through
+export TOMB_DANGEROUS_ENABLED=true
+
+rm() {
+    "$RM_WRAPPER" "\$@"
+}
+
+EOF
+
+    print_success "rm wrapper installed - dangerous operations require YubiKey"
 }
 
 # Install hooks in workspace repos
@@ -561,6 +610,13 @@ cmd_status() {
         echo -e "Wrappers:    ${GREEN}✅ Installed${NC} (git, gh)"
     else
         echo -e "Wrappers:    ${RED}❌ Not installed${NC}"
+    fi
+
+    # Check rm wrapper
+    if grep -q "Dangerous rm Protection" "$shell_config" 2>/dev/null; then
+        echo -e "rm protect:  ${GREEN}✅ Installed${NC} (dangerous rm requires YubiKey)"
+    else
+        echo -e "rm protect:  ${YELLOW}⚠️  Not installed${NC} (add with --dangerous-commands)"
     fi
 
     # Check hooks
@@ -699,9 +755,17 @@ cmd_remove() {
         # Also remove the compdef lines if they exist
         sed -i.bak '/compdef _git git=git/d' "$shell_config"
         sed -i.bak '/compdef _gh gh=gh/d' "$shell_config"
-        print_success "Removed wrappers from shell config"
+        print_success "Removed git/gh wrappers from shell config"
     else
-        print_info "No wrappers found in shell config"
+        print_info "No git/gh wrappers found in shell config"
+    fi
+
+    # Remove rm wrapper
+    if grep -q "Dangerous rm Protection" "$shell_config" 2>/dev/null; then
+        sed -i.bak '/# Dangerous rm Protection/,/^$/d' "$shell_config"
+        print_success "Removed rm wrapper from shell config"
+    else
+        print_info "No rm wrapper found in shell config"
     fi
 
     # Remove git hooks from template

@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # Configuration
-TIMEOUT_SECONDS="${YUBIKEY_TIMEOUT:-10}"
+TIMEOUT_SECONDS="${YUBIKEY_TIMEOUT:-30}"
 LOG_FILE="${HOME}/.tomb-yubikey-verifications.log"
 
 # Colors for output
