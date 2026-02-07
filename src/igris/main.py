@@ -1,10 +1,26 @@
 """FastAPI application entry point."""
 
+import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI
 
 from igris import __version__
+from igris.db.connection import get_connection
+from igris.db.migrations import run_migrations
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Run database migrations on startup."""
+    with get_connection() as conn:
+        version = run_migrations(conn)
+        logger.info("Database ready at schema version %d", version)
+    yield
+
 
 app = FastAPI(
     title="Igris",
@@ -12,6 +28,7 @@ app = FastAPI(
     version=__version__,
     docs_url="/docs",
     redoc_url=None,
+    lifespan=lifespan,
 )
 
 
