@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     model_config = {"env_prefix": "IGRIS_"}
 
     # Server
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8920
 
     # Database
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = 3600  # 1 hour default
 
     # Network security — comma-separated CIDR subnets
-    allowed_subnets: str = "10.211.55.0/24,127.0.0.0/8"
+    allowed_subnets: str = "127.0.0.0/8"
 
     # FIDO2
     rp_id: str = "igris.local"

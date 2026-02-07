@@ -34,13 +34,13 @@ def _register_test_key(serial: str = "12345678"):
 
 def test_create_and_validate_session():
     _register_test_key()
-    session_id = create_session("12345678", ip_address="10.211.55.7")
+    session_id = create_session("12345678", ip_address="192.168.1.100")
     assert session_id is not None
 
     result = validate_session(session_id)
     assert result is not None
     assert result["yubikey_serial"] == "12345678"
-    assert result["ip_address"] == "10.211.55.7"
+    assert result["ip_address"] == "192.168.1.100"
 
 
 def test_validate_nonexistent_session():

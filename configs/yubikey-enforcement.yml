@@ -92,7 +92,7 @@ integration:
 dangerous_commands:
   enabled: true
   environment: main_only       # main_only | all (VM passes through)
-  # main_only: Only enforce on main machine (/Users/fweir)
+  # main_only: Only enforce on main machine (detected via $USER)
   # all: Enforce everywhere (not recommended - VM is sandbox)
 
   rm:
@@ -126,7 +126,8 @@ dangerous_commands:
 
 devices:
   # Multiple YubiKeys can be registered for redundancy
-  allowed_serials:
-    - 30945664  # Primary YubiKey 5C Nano
+  # Set via IGRIS_YUBIKEY_SERIALS env var or 1Password
+  # Example: allowed_serials: [12345678]
+  allowed_serials: []
 
   require_specific_device: false  # Allow any from list

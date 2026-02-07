@@ -25,7 +25,7 @@ The ElevenLabs API key is retrieved from 1Password CLI:
 - **Auto-loaded**: Via `~/.zshrc` on shell startup
 
 ### Voice Configuration
-- **Voice**: Albedo v2 (ID: Sr4DTtH3Kmyd0sUrsL97)
+- **Voice**: Albedo v2 (set via `ELEVENLABS_DEFAULT_VOICE_ID` env var)
 - **Model**: Eleven Multilingual v2
 - **Settings**:
   - Stability: 50%
@@ -50,7 +50,7 @@ Location: [`.mcp.json`](.mcp.json)
       ],
       "env": {
         "ELEVENLABS_API_KEY": "${env:ELEVENLABS_API_KEY}",
-        "ELEVENLABS_DEFAULT_VOICE_ID": "Sr4DTtH3Kmyd0sUrsL97"
+        "ELEVENLABS_DEFAULT_VOICE_ID": "${env:ELEVENLABS_DEFAULT_VOICE_ID}"
       }
     }
   }
@@ -120,7 +120,7 @@ Check my ElevenLabs subscription status
    ```bash
    echo ${ELEVENLABS_API_KEY:0:20}...
    ```
-   Should show: `sk_5f2f995c591e4b8a...`
+   Should show: `sk_xxxxxxxxxxxx...`
 
 2. Test MCP server manually:
    ```bash

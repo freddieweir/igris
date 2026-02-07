@@ -13,7 +13,7 @@ services:
     environment:
       IGRIS_DB_PATH: /data/igris.db
       IGRIS_DB_MASTER_KEY_FILE: /data/.igris-master-key
-      IGRIS_ALLOWED_SUBNETS: "10.211.55.0/24,127.0.0.0/8,172.16.0.0/12"
+      IGRIS_ALLOWED_SUBNETS: "${IGRIS_ALLOWED_SUBNETS:-127.0.0.0/8,172.16.0.0/12}"
       IGRIS_RP_ID: "igris.local"
       IGRIS_RP_NAME: "Igris YubiKey Service"
       IGRIS_ORIGIN: "https://igris.local:8920"
