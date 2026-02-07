@@ -1,0 +1,34 @@
+services:
+  igris:
+    build: .
+    container_name: igris
+    restart: unless-stopped
+    ports:
+      - "8920:8920"
+    volumes:
+      - igris-data:/data
+      # USB passthrough for YubiKey (Linux hosts)
+      # Uncomment if running on Linux with USB support:
+      # - /dev/bus/usb:/dev/bus/usb
+    environment:
+      IGRIS_DB_PATH: /data/igris.db
+      IGRIS_DB_MASTER_KEY_FILE: /data/.igris-master-key
+      IGRIS_ALLOWED_SUBNETS: "10.211.55.0/24,127.0.0.0/8,172.16.0.0/12"
+      IGRIS_RP_ID: "igris.local"
+      IGRIS_RP_NAME: "Igris YubiKey Service"
+      IGRIS_ORIGIN: "https://igris.local:8920"
+      IGRIS_SESSION_TTL_SECONDS: "3600"
+      IGRIS_LOG_LEVEL: "INFO"
+    # macOS Docker Desktop: USB passthrough not natively supported.
+    # Use host-mode FIDO2 registration and relay credentials to the container,
+    # or run the service directly on the host for registration flows.
+    # See docs/USB-PASSTHROUGH.md for platform-specific guidance.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8920/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  igris-data:
