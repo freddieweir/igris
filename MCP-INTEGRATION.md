@@ -64,7 +64,7 @@ File: `.mcp.json` in project root
       ],
       "env": {
         "ELEVENLABS_API_KEY": "${env:ELEVENLABS_API_KEY}",
-        "ELEVENLABS_DEFAULT_VOICE_ID": "Sr4DTtH3Kmyd0sUrsL97"
+        "ELEVENLABS_DEFAULT_VOICE_ID": "${ELEVENLABS_DEFAULT_VOICE_ID}"
       }
     }
   }
@@ -94,7 +94,7 @@ Create a startup script:
 
 #!/bin/bash
 export ELEVENLABS_API_KEY=$(op item get "Eleven Labs - API" --fields credential --vault API --reveal)
-export ELEVENLABS_DEFAULT_VOICE_ID="Sr4DTtH3Kmyd0sUrsL97"
+export ELEVENLABS_DEFAULT_VOICE_ID="${ELEVENLABS_DEFAULT_VOICE_ID}"
 
 uvx mcpo --port 8000 -- uv --directory $GIT_ROOT/external/mcp/elevenlabs-mcp run elevenlabs-mcp
 ```
@@ -149,7 +149,7 @@ services:
       - "8000:8000"
     environment:
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
-      - ELEVENLABS_DEFAULT_VOICE_ID=Sr4DTtH3Kmyd0sUrsL97
+      - ELEVENLABS_DEFAULT_VOICE_ID=${ELEVENLABS_DEFAULT_VOICE_ID}
     command: uvx mcpo --port 8000 --host 0.0.0.0 -- elevenlabs-mcp
     restart: unless-stopped
     networks:
@@ -214,7 +214,7 @@ class MCPClient:
 mcp = MCPClient(f"{os.environ.get('GIT_ROOT', str(Path.home() / 'git'))}/claude/.mcp.json")
 result = mcp.call_tool("elevenlabs", "text_to_speech", {
     "text": "Automation task completed successfully",
-    "voice_id": "Sr4DTtH3Kmyd0sUrsL97"
+    "voice_id": "${ELEVENLABS_DEFAULT_VOICE_ID}"
 })
 ```
 
@@ -230,7 +230,7 @@ class ElevenLabsTTS:
         self.base_url = mcpo_url
         self.client = httpx.Client()
 
-    def speak(self, text: str, voice_id: str = "Sr4DTtH3Kmyd0sUrsL97"):
+    def speak(self, text: str, voice_id: str = "${ELEVENLABS_DEFAULT_VOICE_ID}"):
         """Generate and play speech."""
         response = self.client.post(
             f"{self.base_url}/tools/text_to_speech",
@@ -282,7 +282,7 @@ def deploy_service(service_name: str):
   "tool": "text_to_speech",
   "params": {
     "text": "Your text here",
-    "voice_id": "Sr4DTtH3Kmyd0sUrsL97",  # Optional, uses default
+    "voice_id": "${ELEVENLABS_DEFAULT_VOICE_ID}",  # Optional, uses default
     "output_path": "/path/to/output.mp3"  # Optional
   }
 }
