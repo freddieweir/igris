@@ -34,13 +34,13 @@ def _register_test_key(serial: str = "12345678"):
 
 def test_create_and_validate_session():
     _register_test_key()
-    session_id = create_session("12345678", ip_address="192.168.1.100")
+    session_id = create_session("12345678", ip_address="198.51.100.1")
     assert session_id is not None
 
     result = validate_session(session_id)
     assert result is not None
     assert result["yubikey_serial"] == "12345678"
-    assert result["ip_address"] == "192.168.1.100"
+    assert result["ip_address"] == "198.51.100.1"
 
 
 def test_validate_nonexistent_session():
@@ -90,7 +90,7 @@ def test_cleanup_expired_removes_old_sessions():
 
 def test_session_creates_audit_entry():
     _register_test_key()
-    create_session("12345678", ip_address="10.0.0.1")
+    create_session("12345678", ip_address="203.0.113.50")
 
     with get_connection() as conn:
         row = conn.execute(
@@ -98,4 +98,4 @@ def test_session_creates_audit_entry():
         ).fetchone()
         assert row is not None
         assert row["yubikey_serial"] == "12345678"
-        assert row["ip_address"] == "10.0.0.1"
+        assert row["ip_address"] == "203.0.113.50"

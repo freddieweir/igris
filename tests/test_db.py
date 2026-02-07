@@ -75,12 +75,12 @@ def test_session_crud():
         conn.execute(
             """INSERT INTO sessions (session_id, yubikey_serial, created_at, expires_at, ip_address)
                VALUES (?, ?, ?, ?, ?)""",
-            ("sess-001", "12345678", now, now, "192.168.1.100"),
+            ("sess-001", "12345678", now, now, "198.51.100.1"),
         )
 
         row = conn.execute("SELECT * FROM sessions WHERE session_id = ?", ("sess-001",)).fetchone()
         assert row["yubikey_serial"] == "12345678"
-        assert row["ip_address"] == "192.168.1.100"
+        assert row["ip_address"] == "198.51.100.1"
 
 
 def test_audit_log_crud():
