@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from igris.core.fido2 import begin_registration, complete_registration
 from igris.db.connection import get_connection
+from igris.api.utils import serialize_fido2_options
 
 router = APIRouter(prefix="/keys", tags=["keys"])
 
@@ -66,7 +67,7 @@ async def register_begin(body: RegisterBeginRequest):
 
     return RegisterBeginResponse(
         request_id=request_id,
-        options=_serialize_options(challenge.options),
+        options=serialize_fido2_options(challenge.options),
     )
 
 
@@ -126,21 +127,3 @@ async def list_keys():
         )
         for row in rows
     ]
-
-
-def _serialize_options(options: dict) -> dict:
-    """Convert fido2 options to JSON-safe dict."""
-    import base64
-
-    def _convert(obj):
-        if isinstance(obj, bytes):
-            return base64.urlsafe_b64encode(obj).rstrip(b"=").decode()
-        if isinstance(obj, dict):
-            return {k: _convert(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple)):
-            return [_convert(v) for v in obj]
-        if hasattr(obj, "__dict__"):
-            return {k: _convert(v) for k, v in vars(obj).items() if not k.startswith("_")}
-        return obj
-
-    return _convert(options)
