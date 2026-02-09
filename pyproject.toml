@@ -1,6 +1,6 @@
 [project]
 name = "igris"
-version = "2.0.0"
+version = "2.1.0"
 description = "YubiKey FIDO2 authentication service for LAN-based security enforcement"
 readme = "README.md"
 license = {text = "MIT"}
@@ -10,6 +10,7 @@ dependencies = [
     "uvicorn[standard]>=0.34.0",
     "fido2>=1.2.0",
     "pydantic-settings>=2.7.0",
+    "argon2-cffi>=23.1.0",
 ]
 
 [project.optional-dependencies]
