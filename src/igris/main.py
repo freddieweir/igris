@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from igris import __version__
 from igris.api.auth import router as auth_router
 from igris.api.audit import router as audit_router
+from igris.api.otp import router as otp_router
 from igris.api.keys import router as keys_router
 from igris.api.sessions import router as sessions_router
 from igris.db.connection import get_connection
@@ -43,6 +44,7 @@ app.add_middleware(SubnetFilterMiddleware)
 
 # Routers
 app.include_router(auth_router)
+app.include_router(otp_router)
 app.include_router(keys_router)
 app.include_router(sessions_router)
 app.include_router(audit_router)

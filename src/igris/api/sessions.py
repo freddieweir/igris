@@ -13,6 +13,7 @@ class SessionValidateResponse(BaseModel):
     yubikey_serial: str | None = None
     tier_level: str | None = None
     expires_at: str | None = None
+    auth_method: str | None = None
 
 
 class SessionRevokeResponse(BaseModel):
@@ -31,6 +32,7 @@ async def validate(session_id: str):
         yubikey_serial=result["yubikey_serial"],
         tier_level=result["tier_level"],
         expires_at=result["expires_at"],
+        auth_method=result.get("auth_method", "fido2"),
     )
 
 
