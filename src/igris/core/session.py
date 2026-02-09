@@ -11,21 +11,27 @@ from igris.db.connection import get_connection
 logger = logging.getLogger(__name__)
 
 
-def create_session(yubikey_serial: str, ip_address: str = "", tier: str = "standard") -> str:
+def create_session(yubikey_serial: str, ip_address: str = "", tier: str = "standard", auth_method: str = "fido2") -> str:
     """Create a new authenticated session. Returns session_id."""
     session_id = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
-    expires = now + timedelta(seconds=_config.settings.session_ttl_seconds)
+
+    # Dynamic TTL based on auth method
+    if auth_method == "otp":
+        ttl = _config.settings.otp_session_ttl_seconds
+    else:
+        ttl = _config.settings.session_ttl_seconds
+    expires = now + timedelta(seconds=ttl)
 
     with get_connection() as conn:
         conn.execute(
-            """INSERT INTO sessions (session_id, yubikey_serial, created_at, expires_at, tier_level, ip_address)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (session_id, yubikey_serial, now.isoformat(), expires.isoformat(), tier, ip_address),
+            """INSERT INTO sessions (session_id, yubikey_serial, created_at, expires_at, tier_level, ip_address, auth_method)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, yubikey_serial, now.isoformat(), expires.isoformat(), tier, ip_address, auth_method),
         )
-        _audit(conn, "session_created", yubikey_serial, ip_address, {"session_id": session_id})
+        _audit(conn, "session_created", yubikey_serial, ip_address, {"session_id": session_id, "auth_method": auth_method})
 
-    logger.info("Session created: %s for serial=%s", session_id[:8], yubikey_serial)
+    logger.info("Session created: %s for serial=%s (auth=%s)", session_id[:8], yubikey_serial, auth_method)
     return session_id
 
 
