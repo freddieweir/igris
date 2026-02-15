@@ -16,25 +16,30 @@ _Naming scheme derived from Solo Leveling because I decided why not ([Image Sour
 
 - **Hardware Verification Enforcement** - YubiKey tap OR Touch ID via 1Password CLI
 - **Git/GitHub Protection** - All network operations require hardware verification
+- **Docker Operation Gating** - Policy-based auth for Docker commands (auto-approve / single-tap / dual-tap)
 - **Dangerous Command Protection** - Block `rm -rf ~/` and similar catastrophic commands
+- **Unified CLI** - `igris status`, `igris audit`, `igris policy` for management
 - **Command-Specific Audio Alerts** - Modular voice notifications for each operation
 - **Defense-in-Depth Architecture** with multiple enforcement layers preventing bypass
 - **Environment-Aware** - Main machine protection, VM pass-through for sandboxed work
 - **Flexible Authentication** - Use YubiKey (most secure) or Touch ID (convenient alternative)
-- **Cryptographic Verification** via HMAC-SHA1 challenge-response with touch requirement
+- **Cryptographic Verification** via HMAC-SHA1 challenge-response (Slot 1, touch required)
 - **Bypass Detection Alerts** - Audio warnings when enforcement is disabled
 - **Auto-Revert Setup** ensuring no incomplete or misconfigured installations
-- **Comprehensive Audit Logging** for all verification attempts and failures
+- **Comprehensive Audit Logging** for all verification attempts and failures (JSONL for Docker, plaintext for git)
 - **Graceful Fallback** with security warnings when optimal verification unavailable
 
 **Operations Requiring Hardware Verification:**
 - `git push`, `git pull`, `git fetch`, `git clone`
 - `git remote add/update/set-url`, `git submodule update --remote`
 - `gh pr create/merge`, `gh release create`, `gh repo clone`, `gh workflow run`
+- `docker container start/stop/restart/run`, `docker compose up/down` (single tap)
+- `docker exec`, `docker container rm`, `docker system prune` (dual tap)
 - `rm -rf /`, `rm -rf ~`, `rm -rf /Users/*` (with `--dangerous-commands` flag)
 
 **Pass-Through Operations (No Tap):**
 - `git commit`, `git status`, `git log`, `git diff`
+- `docker ps`, `docker logs`, `docker images`, `docker inspect`, `docker info`
 - All read-only and local operations
 - `rm` commands not targeting protected paths
 - All commands in VM environments (sandbox mode)
@@ -58,10 +63,14 @@ Igris implements a defense-in-depth security model with three enforcement layers
 ├── Layer 2: Git Hooks
 │   └── pre-push hook               → Catches direct binary invocations
 │
-├── Layer 3: YubiKey Verification
+├── Layer 3: Docker Policy Engine
+│   ├── docker-yubikey-wrapper.sh  → Intercepts Docker commands
+│   └── policy.py                  → Classifies operations by risk
+│
+├── Layer 4: YubiKey Verification
 │   └── yubikey-verify.sh           → Cryptographic challenge-response
 │
-└── Layer 4: Audio Alerts
+└── Layer 5: Audio Alerts
     ├── Command-specific alerts     → "YubiKey tap required for git push"
     ├── Bypass detection            → "Warning: enforcement bypassed"
     └── Modular composition         → Reusable prefix + action clips
@@ -82,11 +91,21 @@ Igris implements a defense-in-depth security model with three enforcement layers
 3. Requires YubiKey verification again
 4. Aborts push if verification fails
 
+**Docker Policy Engine:**
+1. Shell wrapper intercepts Docker commands
+2. Fast path: regex pre-check for obvious read-only ops (skips Python startup)
+3. Python policy engine parses Docker CLI args into dotted operations
+4. Classifies as `auto_approve`, `single_tap`, or `dual_tap`
+5. `auto_approve`: executes immediately (read-only ops)
+6. `single_tap`: requires one YubiKey tap
+7. `dual_tap`: requires two taps within 10-second window (destructive ops)
+8. All operations logged to `~/.cache/igris/audit.jsonl`
+
 **YubiKey Verification Core:**
 1. Plays command-specific audio alert (e.g., "YubiKey tap required for git push")
 2. Detects YubiKey presence via `ykman`
 3. Generates random 32-byte challenge
-4. Sends challenge to YubiKey OTP slot 2
+4. Sends challenge to YubiKey OTP Slot 1 (configurable via `IGRIS_OTP_SLOT`)
 5. Requires physical tap (hardware enforced)
 6. Validates HMAC-SHA1 response
 7. Logs attempt (success/failure/timeout)
@@ -102,7 +121,7 @@ Igris implements a defense-in-depth security model with three enforcement layers
 
 1. **YubiKey OTP with Required Touch** (MOST SECURE)
    - Cryptographic HMAC-SHA1 challenge-response
-   - Touch flag enforced on YubiKey slot 2
+   - Touch flag enforced on YubiKey Slot 1 (configurable)
    - Random 32-byte challenge per operation
    - Hardware-verified physical presence
    - Preferred method for maximum security
@@ -231,7 +250,15 @@ cd igris
 ```bash
 ./scripts/yubikey-configure-otp.sh configure
 ```
-This sets up HMAC-SHA1 challenge-response with required touch on slot 2.
+This sets up HMAC-SHA1 challenge-response with required touch on Slot 1.
+
+**YubiKey Slot Layout:**
+| Slot | Purpose |
+|------|---------|
+| Slot 1 (short touch) | HMAC-SHA1 for igris |
+| Slot 2 (long touch) | Static password / other |
+
+> Multiple YubiKeys: program the same HMAC-SHA1 secret onto Slot 1 of each key. Save the secret in 1Password for recovery.
 
 *If using Touch ID:*
 ```bash
@@ -244,12 +271,20 @@ op account list  # Should trigger Touch ID
 
 **3. Install Enforcement System:**
 ```bash
+# Git + GitHub CLI enforcement
 ./scripts/hardware-git-setup.sh setup
+
+# Git + GitHub + dangerous rm protection
+./scripts/hardware-git-setup.sh setup --dangerous-commands
+
+# Git + GitHub + dangerous rm + Docker operation gating
+./scripts/hardware-git-setup.sh setup --docker
 ```
 
 Interactive setup process:
 - Detects available hardware (YubiKey and/or Touch ID)
-- Installs shell wrappers for git/gh commands
+- Installs shell wrappers for git/gh commands (+ Docker if `--docker`)
+- Creates Docker policy at `~/.config/igris/policy.yaml` (if `--docker`)
 - Configures global git hooks via template directory
 - Backs up existing shell configuration
 - **Requires hardware verification to complete** (proves physical access)
@@ -268,6 +303,15 @@ source ~/.bashrc
 
 # Or restart your terminal
 ```
+
+**5. (Optional) Install the `igris` CLI:**
+```bash
+cd igris
+uv sync
+uv run igris status
+```
+
+The CLI provides `igris status`, `igris audit`, and `igris policy` commands for managing the system.
 
 ### First Use
 
@@ -364,8 +408,24 @@ This installs pre-push hooks in repositories listed in `configs/yubikey-enforcem
 | Task | Command | Description |
 |------|---------|-------------|
 | **Check Slot Status** | `./scripts/yubikey-configure-otp.sh status` | Show OTP configuration |
-| **Configure Slot 2** | `./scripts/yubikey-configure-otp.sh configure` | Setup challenge-response |
-| **Delete Slot 2** | `./scripts/yubikey-configure-otp.sh delete` | Remove OTP configuration |
+| **Configure Slot 1** | `./scripts/yubikey-configure-otp.sh configure` | Setup HMAC-SHA1 challenge-response |
+| **Delete Slot 1** | `./scripts/yubikey-configure-otp.sh delete` | Remove OTP configuration |
+
+### Docker Policy Management
+
+| Task | Command | Description |
+|------|---------|-------------|
+| **View Policy** | `igris policy` or `cat ~/.config/igris/policy.yaml` | Show Docker operation classifications |
+| **View Audit Log** | `igris audit --tail 20` | Recent Docker auth events |
+| **Check Status** | `igris status` | Enforcement status for git, Docker, environment |
+
+### Docker Auth Levels
+
+| Level | Operations | Behaviour |
+|-------|-----------|-----------|
+| `auto_approve` | `ps`, `logs`, `images`, `inspect`, `info`, `version`, `compose ps/logs` | No tap — passes through |
+| `single_tap` | `start`, `stop`, `restart`, `run`, `build`, `pull`, `compose up/down` | One YubiKey tap |
+| `dual_tap` | `exec`, `rm`, `kill`, `system prune`, `volume rm`, `compose rm` | Two taps within 10 seconds |
 
 ### Management Workflow
 
@@ -412,9 +472,9 @@ ykman list
 # Try different USB port
 ```
 
-**"OTP Slot 2 is empty":**
+**"OTP Slot 1 is empty":**
 ```bash
-# Configure OTP slot 2 with touch requirement
+# Configure OTP Slot 1 with touch requirement
 ./scripts/yubikey-configure-otp.sh configure
 
 # Verify configuration
@@ -604,13 +664,11 @@ exemptions:
 ### Contributing
 
 **Areas for Improvement:**
+- [ ] Interactive TUI for repo selection during setup
+- [ ] Serial allow-list enforcement (config exists, not wired up)
 - [ ] FIDO2 proper implementation (not just presence check)
 - [ ] Windows support (PowerShell wrappers)
-- [ ] GUI installer for non-technical users
-- [ ] Multi-YubiKey rotation support
-- [ ] Time-based caching (tap once, valid for N minutes)
 - [ ] Homebrew formula for easy installation
-- [ ] Automated integration tests
 - [ ] Keybase/GPG integration
 
 **Submitting Changes:**
@@ -628,29 +686,46 @@ exemptions:
 
 ```
 igris/
+├── src/igris/                        # Python package
+│   ├── cli.py                        # Unified `igris` CLI (Typer)
+│   ├── docker/
+│   │   ├── policy.py                 # Docker policy engine (auth classification)
+│   │   └── audit.py                  # JSONL audit logger
+│   ├── core/
+│   │   ├── otp.py                    # OTP password hashing/verification
+│   │   └── session.py                # Session management
+│   ├── api/                          # FastAPI REST backend (v2)
+│   │   ├── auth.py, keys.py, otp.py  # Auth endpoints
+│   │   └── sessions.py               # Session endpoints
+│   └── db/                           # Database models and migrations
 ├── scripts/
-│   ├── yubikey-verify.sh            # Core verification logic + audio
-│   ├── git-yubikey-wrapper.sh       # Git command wrapper
-│   ├── gh-yubikey-wrapper.sh        # GitHub CLI wrapper
-│   ├── rm-yubikey-wrapper.sh        # Dangerous rm command wrapper
-│   ├── hardware-git-setup.sh        # Management CLI
-│   ├── yubikey-configure-otp.sh     # YubiKey OTP configuration
-│   └── test-rm-protection.sh        # Test suite for rm protection
+│   ├── yubikey-verify.sh             # Core verification logic + audio
+│   ├── git-yubikey-wrapper.sh        # Git command wrapper
+│   ├── gh-yubikey-wrapper.sh         # GitHub CLI wrapper
+│   ├── rm-yubikey-wrapper.sh         # Dangerous rm command wrapper
+│   ├── docker-yubikey-wrapper.sh     # Docker command wrapper (policy-based)
+│   ├── hardware-git-setup.sh         # Management CLI (setup/remove/status)
+│   ├── yubikey-configure-otp.sh      # YubiKey OTP configuration
+│   ├── test-rm-protection.sh         # Test suite for rm protection
+│   └── test-docker-protection.sh     # Test suite for Docker protection
+├── tests/
+│   ├── test_docker_policy.py         # Policy engine tests (26 tests)
+│   ├── test_docker_audit.py          # Audit logger tests
+│   ├── test_otp.py                   # OTP verification tests
+│   └── test_session.py               # Session management tests
 ├── hooks/
 │   └── git-hooks/
-│       └── pre-push                  # Pre-push hook template
+│       └── pre-push                   # Pre-push hook template
 ├── configs/
-│   ├── yubikey-enforcement.yml       # Main configuration file (includes dangerous_commands)
-│   └── audio-alerts.yml              # Audio alert mappings (includes dangerous commands)
+│   ├── yubikey-enforcement.yml        # Main configuration (git, docker, dangerous_commands)
+│   └── audio-alerts.yml               # Audio alert mappings
+├── docs/
+│   ├── YUBIKEY_INTEGRATION_PLAN.md    # v2 REST API architecture
+│   └── USB-PASSTHROUGH.md             # USB passthrough for Docker/VMs
 ├── assets/
-│   └── audio/
-│       ├── README.md                 # Audio setup guide
-│       ├── prefix-*.wav              # Modular prefix clips
-│       ├── action-*.wav              # Modular action clips
-│       ├── bypass-detected.wav       # Security alert sound
-│       └── dangerous/                # Dangerous command audio files
-│           └── README.md             # Voice generation guide
-└── README.md                         # This file
+│   └── audio/                         # Voice clips and sounds
+├── pyproject.toml                     # Python package config (uv)
+└── README.md                          # This file
 ```
 
 ## Design Principles
