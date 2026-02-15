@@ -5,7 +5,7 @@ import sqlite3
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 MIGRATIONS: dict[int, list[str]] = {
     1: [
@@ -58,6 +58,26 @@ MIGRATIONS: dict[int, list[str]] = {
         """
         CREATE INDEX IF NOT EXISTS idx_audit_event_type
         ON audit_log(event_type)
+        """,
+    ],
+    2: [
+        """
+        CREATE TABLE IF NOT EXISTS otp_credentials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            yubikey_serial TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            hash_algorithm TEXT NOT NULL DEFAULT 'argon2id',
+            created_at TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY (yubikey_serial) REFERENCES yubikeys(serial)
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_otp_creds_serial
+        ON otp_credentials(yubikey_serial)
+        """,
+        """
+        ALTER TABLE sessions ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'fido2'
         """,
     ],
 }

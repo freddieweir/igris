@@ -28,6 +28,7 @@ class Session:
     expires_at: datetime = field(default_factory=_utcnow)
     tier_level: str = "standard"
     ip_address: str = ""
+    auth_method: str = "fido2"
 
 
 @dataclass
@@ -38,3 +39,13 @@ class AuditEntry:
     yubikey_serial: str = ""
     ip_address: str = ""
     details: str = ""  # JSON string
+
+
+@dataclass
+class OTPCredential:
+    id: int | None = None
+    yubikey_serial: str = ""
+    password_hash: str = ""
+    hash_algorithm: str = "argon2id"
+    created_at: datetime = field(default_factory=_utcnow)
+    is_active: bool = True

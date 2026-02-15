@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     # Sessions
     session_ttl_seconds: int = 3600  # 1 hour default
 
+    # OTP (long-tap / static password)
+    otp_session_ttl_seconds: int = 1800  # 30 min (shorter than FIDO2)
+    otp_max_attempts: int = 5
+    otp_lockout_seconds: int = 600  # 10 min lockout
+
     # Network security — comma-separated CIDR subnets
     allowed_subnets: str = "127.0.0.0/8"
 
