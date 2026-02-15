@@ -21,6 +21,31 @@ else
     YKMAN_BIN="ykman"  # Fallback to PATH
 fi
 
+# OTP slot for HMAC-SHA1 challenge-response (configurable)
+# Read from env var, then config file, default to 1
+if [ -z "${IGRIS_OTP_SLOT:-}" ] && [ -f "$CONFIG_FILE" ]; then
+    IGRIS_OTP_SLOT=$(grep -A 5 "^yubikey:" "$CONFIG_FILE" 2>/dev/null | grep "slot:" | head -1 | awk '{print $2}')
+fi
+SLOT="${IGRIS_OTP_SLOT:-1}"
+
+# Timeout wrapper — macOS USB HID requires --foreground to stay in same process group
+_timeout_cmd() {
+    local secs="$1"
+    shift
+    if command -v timeout &>/dev/null; then
+        # --foreground prevents process group creation (required for macOS USB HID)
+        timeout --foreground "${secs}s" "$@"
+        return $?
+    elif command -v gtimeout &>/dev/null; then
+        gtimeout --foreground "${secs}s" "$@"
+        return $?
+    else
+        # No timeout available — run directly (YubiKey has ~15s hardware timeout)
+        "$@"
+        return $?
+    fi
+}
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -172,6 +197,13 @@ play_audio_alert() {
         elif [[ "$OPERATION" =~ "workflow run" ]]; then
             cmd_action="workflow_run"
         fi
+    elif [[ "$OPERATION" =~ ^docker ]]; then
+        cmd_type="docker"
+        # Extract docker action (operation format: "docker container.exec [tap 1/2]")
+        local docker_op="${OPERATION#docker }"
+        docker_op="${docker_op%% \[*}"  # Strip "[tap N/N]" suffix
+        # Convert dotted notation to underscore for audio config lookup
+        cmd_action="${docker_op//./_}"
     fi
 
     # Check if modular audio is enabled
@@ -450,22 +482,22 @@ detect_yubikey() {
     return 0
 }
 
-# Verify OTP slot 2 is configured with touch requirement
+# Verify OTP slot is configured with touch requirement
 check_otp_touch_configured() {
     local otp_info
     if ! otp_info=$($YKMAN_BIN otp info 2>/dev/null); then
         return 1
     fi
 
-    # Check if slot 2 has touch requirement configured
+    # Check if configured slot has touch requirement configured
     # $YKMAN_BIN shows "configured" but doesn't explicitly show touch flag
     # We need to test with a challenge to verify touch behavior
-    if echo "$otp_info" | grep -q "Slot 2: empty"; then
+    if echo "$otp_info" | grep -q "Slot ${SLOT}: empty"; then
         return 1
     fi
 
-    # Extract slot 2 info line
-    local slot2_line=$(echo "$otp_info" | grep -A 1 "Slot 2:" | tail -1)
+    # Extract slot info line
+    local slot_line=$(echo "$otp_info" | grep -A 1 "Slot ${SLOT}:" | tail -1)
 
     # Check for touch indicators in the output
     # Note: $YKMAN_BIN doesn't always show touch flag explicitly
@@ -538,6 +570,11 @@ cleanup_verification_cache() {
 
 # Check if recent verification exists in cache
 check_verification_cache() {
+    # Allow callers to force cache bypass (used for dual-tap Docker ops)
+    if [ "${TOMB_VERIFICATION_CACHE_ENABLED:-}" = "false" ]; then
+        return 1
+    fi
+
     # Read cache settings from config
     local cache_enabled=$(grep -A 10 "cache:" "$CONFIG_FILE" 2>/dev/null | grep "enabled:" | head -1 | sed 's/#.*//' | awk '{print $2}')
     if [ "$cache_enabled" != "true" ]; then
@@ -624,25 +661,25 @@ cache_successful_verification() {
 verify_otp_touch() {
     print_info "Verifying with OTP challenge-response (requires physical tap)..."
 
-    # Check if OTP slot 2 is configured
+    # Check if OTP slot is configured
     local otp_info
     if ! otp_info=$($YKMAN_BIN otp info 2>/dev/null); then
         print_warning "OTP not configured on this YubiKey"
         return 1
     fi
 
-    # Check if slot 2 has a credential
-    if echo "$otp_info" | grep -q "Slot 2: empty"; then
-        print_warning "OTP Slot 2 is empty - needs configuration"
-        print_info "Run: $YKMAN_BIN otp chalresp --generate --touch 2"
+    # Check if slot has a credential
+    if echo "$otp_info" | grep -q "Slot ${SLOT}: empty"; then
+        print_warning "OTP Slot ${SLOT} is empty - needs configuration"
+        print_info "Run: $YKMAN_BIN otp chalresp --generate --touch ${SLOT}"
         return 1
     fi
 
-    # SECURITY: Verify slot 2 is configured for challenge-response
-    if ! echo "$otp_info" | grep -q "Slot 2:.*programmed"; then
-        if ! echo "$otp_info" | grep -A 1 "Slot 2:" | grep -q "configured\|programmed\|HMAC-SHA1"; then
-            print_warning "OTP Slot 2 not properly configured"
-            print_info "Run: $YKMAN_BIN otp chalresp --generate --touch 2"
+    # SECURITY: Verify slot is configured for challenge-response
+    if ! echo "$otp_info" | grep -q "Slot ${SLOT}:.*programmed"; then
+        if ! echo "$otp_info" | grep -A 1 "Slot ${SLOT}:" | grep -q "configured\|programmed\|HMAC-SHA1"; then
+            print_warning "OTP Slot ${SLOT} not properly configured"
+            print_info "Run: $YKMAN_BIN otp chalresp --generate --touch ${SLOT}"
             return 1
         fi
     fi
@@ -662,7 +699,7 @@ verify_otp_touch() {
     local start_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
 
     # Try the challenge-response
-    if response=$(timeout "${TIMEOUT_SECONDS}s" $YKMAN_BIN otp calculate 2 "$challenge" 2>&1); then
+    if response=$(_timeout_cmd "$TIMEOUT_SECONDS" $YKMAN_BIN otp calculate "$SLOT" "$challenge" 2>&1); then
         local end_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
         local elapsed=$(($(date +%s) - start_time))
         local elapsed_ms=$((end_time_ms - start_time_ms))
@@ -673,15 +710,15 @@ verify_otp_touch() {
         if [ "$elapsed_ms" -lt 800 ]; then
             play_state_audio "timing_violation"
             print_error "⚠️  SECURITY VIOLATION: Response too fast (${elapsed_ms}ms)!"
-            print_error "OTP Slot 2 is NOT configured to require physical touch"
+            print_error "OTP Slot ${SLOT} is NOT configured to require physical touch"
             print_error "This allows auto-acceptance without hardware verification"
             echo "" >&2
             print_info "FIX REQUIRED:" >&2
-            echo "  1. Reconfigure slot 2 WITH touch requirement:" >&2
+            echo "  1. Reconfigure Slot ${SLOT} WITH touch requirement:" >&2
             echo "     cd ${TOMB_DIR}" >&2
             echo "     ./scripts/yubikey-configure-otp.sh configure" >&2
             echo "  2. Verify touch is working:" >&2
-            echo "     ./scripts/yubikey-git-setup.sh test" >&2
+            echo "     ./scripts/hardware-git-setup.sh test" >&2
             log_verification "FAILURE" "NO-TOUCH-CONFIGURED" "$YUBIKEY_SERIAL"
             return 1
         fi
@@ -720,9 +757,9 @@ verify_otp() {
         return 1
     fi
 
-    # Check if slot 2 is configured for challenge-response
-    if ! echo "$otp_info" | grep -q "Slot 2:"; then
-        print_warning "OTP Slot 2 not configured for challenge-response"
+    # Check if slot is configured for challenge-response
+    if ! echo "$otp_info" | grep -q "Slot ${SLOT}:"; then
+        print_warning "OTP Slot ${SLOT} not configured for challenge-response"
         return 1
     fi
 
@@ -735,7 +772,7 @@ verify_otp() {
     local response
     local start_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
 
-    if response=$(timeout "$TIMEOUT_SECONDS" $YKMAN_BIN otp chalresp 2 "$challenge" 2>/dev/null); then
+    if response=$(_timeout_cmd "$TIMEOUT_SECONDS" $YKMAN_BIN otp chalresp "$SLOT" "$challenge" 2>/dev/null); then
         local end_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
         local elapsed_ms=$((end_time_ms - start_time_ms))
 
@@ -743,21 +780,21 @@ verify_otp() {
         if [ "$elapsed_ms" -lt 800 ]; then
             play_state_audio "timing_violation"
             print_error "⚠️  SECURITY VIOLATION: Response too fast (${elapsed_ms}ms)!"
-            print_error "OTP Slot 2 is NOT configured to require physical touch"
+            print_error "OTP Slot ${SLOT} is NOT configured to require physical touch"
             print_error "This allows auto-acceptance without hardware verification"
             echo "" >&2
             print_info "FIX REQUIRED:" >&2
-            echo "  1. Reconfigure slot 2 WITH touch requirement:" >&2
+            echo "  1. Reconfigure Slot ${SLOT} WITH touch requirement:" >&2
             echo "     cd ${TOMB_DIR}" >&2
             echo "     ./scripts/yubikey-configure-otp.sh configure" >&2
             echo "  2. Verify touch is working:" >&2
-            echo "     ./scripts/yubikey-git-setup.sh test" >&2
+            echo "     ./scripts/hardware-git-setup.sh test" >&2
             log_verification "FAILURE" "NO-TOUCH-CONFIGURED-FALLBACK" "$YUBIKEY_SERIAL"
             return 1
         fi
 
         print_success "YubiKey verified via OTP challenge-response! (${elapsed_ms}ms)"
-        print_warning "⚠️  Used OTP without guaranteed touch - consider configuring slot 2 with --touch"
+        print_warning "⚠️  Used OTP without guaranteed touch - consider configuring Slot ${SLOT} with --touch"
         log_verification "SUCCESS" "OTP" "$YUBIKEY_SERIAL"
         return 0
     else
@@ -825,7 +862,7 @@ main() {
     print_warning "OTP touch verification not available, trying OTP without touch..."
     if verify_otp; then
         cache_successful_verification
-        print_warning "⚠️  Used OTP without guaranteed touch - consider configuring slot 2 with --touch"
+        print_warning "⚠️  Used OTP without guaranteed touch - consider configuring Slot ${SLOT} with --touch"
         print_success "Verification successful! Proceeding with ${OPERATION}"
         play_state_audio "completion"
         exit 0
@@ -836,7 +873,7 @@ main() {
     print_error "YubiKey is connected but not properly configured"
     echo "" >&2
     print_info "Required configuration:" >&2
-    echo "  1. Configure OTP slot 2: ${TOMB_DIR}/scripts/yubikey-configure-otp.sh configure" >&2
+    echo "  1. Configure OTP Slot ${SLOT}: ${TOMB_DIR}/scripts/yubikey-configure-otp.sh configure" >&2
     echo "  2. Ensure tap within timeout (${TIMEOUT_SECONDS}s)" >&2
     echo "  3. Check YubiKey firmware supports OTP" >&2
     log_verification "FAILURE" "otp_not_configured" "$YUBIKEY_SERIAL"
