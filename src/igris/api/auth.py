@@ -9,7 +9,7 @@ from igris.core.fido2 import (
 )
 from igris.core.session import create_session
 from igris.db.connection import get_connection
-from igris.db.migrations import run_migrations
+from igris.api.utils import serialize_fido2_options
 from fido2.webauthn import AttestedCredentialData
 
 router = APIRouter(prefix="/auth/fido2", tags=["auth"])
@@ -51,7 +51,7 @@ async def auth_begin():
 
     return AuthBeginResponse(
         request_id=request_id,
-        options=_serialize_options(challenge.options),
+        options=serialize_fido2_options(challenge.options),
     )
 
 
@@ -117,21 +117,3 @@ def _find_serial_by_credential(credential_id: bytes) -> str | None:
             (credential_id,),
         ).fetchone()
     return row["serial"] if row else None
-
-
-def _serialize_options(options: dict) -> dict:
-    """Convert fido2 options to JSON-safe dict."""
-    import base64
-
-    def _convert(obj):
-        if isinstance(obj, bytes):
-            return base64.urlsafe_b64encode(obj).rstrip(b"=").decode()
-        if isinstance(obj, dict):
-            return {k: _convert(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple)):
-            return [_convert(v) for v in obj]
-        if hasattr(obj, "__dict__"):
-            return {k: _convert(v) for k, v in vars(obj).items() if not k.startswith("_")}
-        return obj
-
-    return _convert(options)

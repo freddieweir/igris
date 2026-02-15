@@ -1,10 +1,20 @@
 #!/bin/bash
 
 # YubiKey OTP Configuration Helper
-# Manages OTP Slot 2 for challenge-response with REQUIRED physical touch
-# Part of tomb-of-nazarick security system
+# Manages OTP slot for HMAC-SHA1 challenge-response with REQUIRED physical touch
+# Part of igris security system
 
 set -euo pipefail
+
+# Configuration
+TOMB_DIR="${TOMB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+CONFIG_FILE="${TOMB_DIR}/configs/yubikey-enforcement.yml"
+
+# Read OTP slot from config/env (default: 1)
+if [ -z "${IGRIS_OTP_SLOT:-}" ] && [ -f "$CONFIG_FILE" ]; then
+    IGRIS_OTP_SLOT=$(grep -A 5 "^yubikey:" "$CONFIG_FILE" 2>/dev/null | grep "slot:" | head -1 | awk '{print $2}')
+fi
+SLOT="${IGRIS_OTP_SLOT:-1}"
 
 # Colors
 RED='\033[0;31m'
@@ -38,26 +48,27 @@ print_info() {
 
 show_usage() {
     cat << EOF
-YubiKey OTP Slot 2 Management
+YubiKey OTP Slot ${SLOT} Management
 
 USAGE:
     $(basename "$0") [COMMAND]
 
 COMMANDS:
-    configure   Configure OTP slot 2 with touch-required challenge-response
-    delete      Delete OTP slot 2 configuration
+    configure   Configure OTP Slot ${SLOT} with touch-required challenge-response
+    delete      Delete OTP Slot ${SLOT} configuration
     status      Show current OTP slot status
     help        Show this help message
 
 EXAMPLES:
     $(basename "$0") configure    # Set up touch-required verification
     $(basename "$0") status        # Check current configuration
-    $(basename "$0") delete        # Remove slot 2 configuration
+    $(basename "$0") delete        # Remove Slot ${SLOT} configuration
 
 NOTES:
-    - Slot 2 is used for YubiKey git enforcement
+    - Slot ${SLOT} is used for YubiKey igris enforcement (HMAC-SHA1)
     - Touch requirement ensures physical presence for verification
-    - Deleting slot 2 will disable tap verification (falls back to insecure mode)
+    - Deleting Slot ${SLOT} will disable tap verification (falls back to insecure mode)
+    - Override slot with IGRIS_OTP_SLOT env var or yubikey.slot in config
 
 EOF
 }
@@ -89,14 +100,14 @@ cmd_status() {
     ykman otp info
 
     echo ""
-    # Check if slot 2 is configured
-    if ykman otp info 2>/dev/null | grep -q "Slot 2: programmed"; then
-        print_success "Slot 2 is configured (tap-required verification available)"
+    # Check if configured slot is ready
+    if ykman otp info 2>/dev/null | grep -q "Slot ${SLOT}: programmed"; then
+        print_success "Slot ${SLOT} is configured (tap-required verification available)"
         echo ""
         print_info "Test verification:"
         echo "  \$TOMB_DIR/scripts/yubikey-verify.sh \"test\""
-    elif ykman otp info 2>/dev/null | grep -q "Slot 2: empty"; then
-        print_warning "Slot 2 is NOT configured"
+    elif ykman otp info 2>/dev/null | grep -q "Slot ${SLOT}: empty"; then
+        print_warning "Slot ${SLOT} is NOT configured"
         echo ""
         print_info "Configure with:"
         echo "  $(basename "$0") configure"
@@ -105,7 +116,7 @@ cmd_status() {
 }
 
 cmd_configure() {
-    print_header "YubiKey OTP Configuration for Touch-Required Verification"
+    print_header "YubiKey OTP Slot ${SLOT} Configuration (Touch-Required)"
 
     check_prerequisites
 
@@ -114,14 +125,14 @@ cmd_configure() {
     print_info "Detected: $YUBIKEY_INFO"
     echo ""
 
-    # Check current OTP slot 2 status
-    print_info "Checking OTP Slot 2 status..."
+    # Check current OTP slot status
+    print_info "Checking OTP Slot ${SLOT} status..."
     ykman otp info
     echo ""
 
-    # Check if slot 2 is already configured
-    if ykman otp info 2>/dev/null | grep -q "Slot 2: programmed"; then
-        print_warning "OTP Slot 2 is already programmed!"
+    # Check if slot is already configured
+    if ykman otp info 2>/dev/null | grep -q "Slot ${SLOT}: programmed"; then
+        print_warning "OTP Slot ${SLOT} is already programmed!"
         echo ""
         echo "Options:"
         echo "  1. Overwrite (will generate NEW credential - breaks existing uses)"
@@ -144,13 +155,13 @@ cmd_configure() {
         esac
     fi
 
-    # Configure slot 2 with challenge-response + touch requirement
+    # Configure slot with challenge-response + touch requirement
     echo ""
-    print_header "Configuring OTP Slot 2"
+    print_header "Configuring OTP Slot ${SLOT}"
 
     echo "This will:"
     echo "  • Generate a random secret key for challenge-response"
-    echo "  • Store it securely on your YubiKey (slot 2)"
+    echo "  • Store it securely on your YubiKey (Slot ${SLOT})"
     echo "  • Require physical touch for every verification"
     echo ""
     read -p "Proceed with configuration? (yes/no): " confirm
@@ -161,12 +172,12 @@ cmd_configure() {
     fi
 
     echo ""
-    print_info "Configuring OTP slot 2 with touch requirement..."
+    print_info "Configuring OTP Slot ${SLOT} with touch requirement..."
 
     # Run ykman otp chalresp with --generate and --touch flags
-    if ykman otp chalresp --generate --touch --force 2; then
+    if ykman otp chalresp --generate --touch --force "$SLOT"; then
         echo ""
-        print_success "OTP Slot 2 configured successfully!"
+        print_success "OTP Slot ${SLOT} configured successfully!"
         echo ""
         print_info "Configuration details:"
         echo "  • Type: Challenge-Response (HMAC-SHA1)"
@@ -234,17 +245,17 @@ cmd_configure() {
 }
 
 cmd_delete() {
-    print_header "Delete YubiKey OTP Slot 2 Configuration"
+    print_header "Delete YubiKey OTP Slot ${SLOT} Configuration"
 
     check_prerequisites
 
-    # Check if slot 2 is configured
-    if ykman otp info 2>/dev/null | grep -q "Slot 2: empty"; then
-        print_info "Slot 2 is already empty (nothing to delete)"
+    # Check if slot is configured
+    if ykman otp info 2>/dev/null | grep -q "Slot ${SLOT}: empty"; then
+        print_info "Slot ${SLOT} is already empty (nothing to delete)"
         exit 0
     fi
 
-    print_warning "This will DELETE the challenge-response credential from slot 2"
+    print_warning "This will DELETE the challenge-response credential from Slot ${SLOT}"
     echo ""
     echo "Impact:"
     echo "  • YubiKey tap verification will no longer work"
@@ -254,7 +265,7 @@ cmd_delete() {
     print_warning "This is a DESTRUCTIVE operation!"
     echo ""
 
-    read -p "Are you sure you want to delete slot 2? (yes/no): " confirm
+    read -p "Are you sure you want to delete Slot ${SLOT}? (yes/no): " confirm
 
     if [ "$confirm" != "yes" ]; then
         print_info "Deletion cancelled"
@@ -262,11 +273,11 @@ cmd_delete() {
     fi
 
     echo ""
-    print_info "Deleting OTP slot 2..."
+    print_info "Deleting OTP Slot ${SLOT}..."
 
-    if ykman otp delete --force 2; then
+    if ykman otp delete --force "$SLOT"; then
         echo ""
-        print_success "OTP Slot 2 deleted successfully"
+        print_success "OTP Slot ${SLOT} deleted successfully"
         echo ""
         print_info "Current status:"
         ykman otp info

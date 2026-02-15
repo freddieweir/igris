@@ -12,6 +12,7 @@ VERIFY_SCRIPT="${TOMB_DIR}/scripts/yubikey-verify.sh"
 GIT_WRAPPER="${TOMB_DIR}/scripts/git-yubikey-wrapper.sh"
 GH_WRAPPER="${TOMB_DIR}/scripts/gh-yubikey-wrapper.sh"
 RM_WRAPPER="${TOMB_DIR}/scripts/rm-yubikey-wrapper.sh"
+DOCKER_WRAPPER="${TOMB_DIR}/scripts/docker-yubikey-wrapper.sh"
 PRE_PUSH_HOOK="${TOMB_DIR}/hooks/git-hooks/pre-push"
 CONFIG_FILE="${TOMB_DIR}/configs/yubikey-enforcement.yml"
 BACKUP_DIR="${HOME}/.tomb-yubikey-backup"
@@ -70,11 +71,13 @@ OPTIONS:
     --repo <path>        Target specific repository
     --non-interactive    Skip prompts and use defaults
     --dangerous-commands Install rm wrapper for dangerous command protection
+    --docker             Install Docker wrapper for operation gating
 
 EXAMPLES:
     $(basename "$0") setup                        # Interactive setup with prompts
     $(basename "$0") setup --all-repos            # Install + add hooks to all repos
     $(basename "$0") setup --dangerous-commands   # Also protect dangerous rm commands
+    $(basename "$0") setup --docker               # Also protect Docker operations
     $(basename "$0") status                       # Check current status
     $(basename "$0") disable                      # Temporarily disable (keep config)
     $(basename "$0") test                         # Test YubiKey verification
@@ -221,6 +224,7 @@ cmd_setup() {
     local interactive=true
     local install_all_repos=false
     local install_dangerous_commands=false
+    local install_docker=false
 
     # Parse options
     while [[ $# -gt 0 ]]; do
@@ -235,6 +239,10 @@ cmd_setup() {
                 ;;
             --dangerous-commands)
                 install_dangerous_commands=true
+                shift
+                ;;
+            --docker)
+                install_docker=true
                 shift
                 ;;
             *)
@@ -346,6 +354,19 @@ EOF
             install_rm_wrapper "$shell_config"
         else
             print_info "Skipped rm protection (you can add later with --dangerous-commands)"
+        fi
+    fi
+
+    # Install Docker wrapper if requested
+    if [ "$install_docker" = true ]; then
+        install_docker_wrapper "$shell_config"
+    elif [ "$interactive" = true ]; then
+        echo ""
+        print_info "Docker operation gating is available (requires YubiKey for destructive ops)."
+        if confirm_action "Also install Docker protection?" "no"; then
+            install_docker_wrapper "$shell_config"
+        else
+            print_info "Skipped Docker protection (you can add later with --docker)"
         fi
     fi
 
@@ -476,6 +497,166 @@ rm() {
 EOF
 
     print_success "rm wrapper installed - dangerous operations require YubiKey"
+}
+
+# Install Docker wrapper for operation gating
+install_docker_wrapper() {
+    local shell_config="$1"
+
+    print_info "Installing Docker operation gating..."
+
+    # Check if already installed
+    if grep -q "Docker Operation Gating" "$shell_config" 2>/dev/null; then
+        print_warning "Docker wrapper already installed in $shell_config"
+        return 0
+    fi
+
+    # Resolve Docker binary at install time
+    local docker_bin
+    docker_bin=$(command -v docker 2>/dev/null || true)
+    if [ -z "$docker_bin" ]; then
+        print_warning "Docker binary not found — wrapper will search PATH at runtime"
+        docker_bin=""
+    fi
+
+    cat >> "$shell_config" << EOF
+
+# Docker Operation Gating (managed by igris)
+# Requires YubiKey for state-changing Docker operations
+# Only enforces on main machine — VM environments pass through
+export IGRIS_DOCKER_ENABLED=true
+EOF
+
+    # Only export binary path if we found one
+    if [ -n "$docker_bin" ]; then
+        cat >> "$shell_config" << EOF
+export IGRIS_DOCKER_BINARY="${docker_bin}"
+EOF
+    fi
+
+    cat >> "$shell_config" << EOF
+
+docker() {
+    "$DOCKER_WRAPPER" "\$@"
+}
+
+EOF
+
+    # Also handle docker-compose standalone binary if present
+    if command -v docker-compose &>/dev/null; then
+        cat >> "$shell_config" << EOF
+docker-compose() {
+    "$DOCKER_WRAPPER" compose "\$@"
+}
+
+EOF
+    fi
+
+    # Create default policy file
+    install_docker_policy
+
+    print_success "Docker wrapper installed — operations gated by policy"
+}
+
+# Install default Docker policy file
+install_docker_policy() {
+    local policy_dir="${HOME}/.config/igris"
+    local policy_file="${policy_dir}/policy.yaml"
+
+    if [ -f "$policy_file" ]; then
+        print_info "Docker policy already exists: $policy_file"
+        return 0
+    fi
+
+    mkdir -p "$policy_dir"
+
+    cat > "$policy_file" << 'EOF'
+# igris Docker Operation Policy
+# Controls which Docker commands require YubiKey verification
+#
+# Levels:
+#   auto_approve - No verification needed (read-only operations)
+#   single_tap   - One YubiKey tap required (state-changing operations)
+#   dual_tap     - Two YubiKey taps required (destructive operations)
+
+policy:
+  auto_approve:
+    - container.logs
+    - container.list
+    - container.inspect
+    - container.top
+    - container.stats
+    - container.diff
+    - container.port
+    - container.wait
+    - image.list
+    - image.inspect
+    - image.history
+    - network.list
+    - network.inspect
+    - volume.list
+    - volume.inspect
+    - compose.ps
+    - compose.logs
+    - compose.config
+    - info
+    - version
+    - events
+    - search
+
+  single_tap:
+    - container.start
+    - container.stop
+    - container.restart
+    - container.create
+    - container.run
+    - container.pause
+    - container.unpause
+    - container.rename
+    - container.update
+    - container.cp
+    - container.commit
+    - container.export
+    - container.attach
+    - image.pull
+    - image.build
+    - image.tag
+    - image.save
+    - image.load
+    - image.push
+    - network.create
+    - network.connect
+    - network.disconnect
+    - volume.create
+    - compose.up
+    - compose.down
+    - compose.restart
+    - compose.build
+    - compose.pull
+    - compose.start
+    - compose.stop
+    - compose.create
+    - login
+    - logout
+
+  dual_tap:
+    - container.exec
+    - container.rm
+    - container.kill
+    - image.rm
+    - volume.rm
+    - network.rm
+    - compose.rm
+    - system.prune
+    - builder.prune
+    - image.prune
+    - container.prune
+    - network.prune
+    - volume.prune
+EOF
+
+    chmod 600 "$policy_file"
+    print_success "Default Docker policy created: $policy_file"
 }
 
 # Install hooks in workspace repos
@@ -617,6 +798,16 @@ cmd_status() {
         echo -e "rm protect:  ${GREEN}✅ Installed${NC} (dangerous rm requires YubiKey)"
     else
         echo -e "rm protect:  ${YELLOW}⚠️  Not installed${NC} (add with --dangerous-commands)"
+    fi
+
+    # Check Docker wrapper
+    if grep -q "Docker Operation Gating" "$shell_config" 2>/dev/null; then
+        echo -e "Docker:      ${GREEN}✅ Installed${NC} (operations gated by policy)"
+        if [ -f "${HOME}/.config/igris/policy.yaml" ]; then
+            echo -e "             Policy: ~/.config/igris/policy.yaml"
+        fi
+    else
+        echo -e "Docker:      ${YELLOW}⚠️  Not installed${NC} (add with --docker)"
     fi
 
     # Check hooks
@@ -766,6 +957,16 @@ cmd_remove() {
         print_success "Removed rm wrapper from shell config"
     else
         print_info "No rm wrapper found in shell config"
+    fi
+
+    # Remove Docker wrapper
+    if grep -q "Docker Operation Gating" "$shell_config" 2>/dev/null; then
+        sed -i.bak '/# Docker Operation Gating/,/^$/d' "$shell_config"
+        # Also remove docker-compose wrapper if present
+        sed -i.bak '/^docker-compose()/,/^$/d' "$shell_config"
+        print_success "Removed Docker wrapper from shell config"
+    else
+        print_info "No Docker wrapper found in shell config"
     fi
 
     # Remove git hooks from template

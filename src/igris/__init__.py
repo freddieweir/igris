@@ -1,3 +1,3 @@
-"""Igris v2 — YubiKey FIDO2 authentication service."""
+"""Igris v3 — YubiKey-gated security enforcement."""
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"

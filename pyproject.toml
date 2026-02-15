@@ -1,7 +1,7 @@
 [project]
 name = "igris"
-version = "2.0.0"
-description = "YubiKey FIDO2 authentication service for LAN-based security enforcement"
+version = "3.0.0"
+description = "YubiKey-gated security enforcement for git, Docker, and shell operations"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.12"
@@ -10,7 +10,13 @@ dependencies = [
     "uvicorn[standard]>=0.34.0",
     "fido2>=1.2.0",
     "pydantic-settings>=2.7.0",
+    "argon2-cffi>=23.1.0",
+    "typer>=0.15.0",
+    "pyyaml>=6.0",
 ]
+
+[project.scripts]
+igris = "igris.cli:app"
 
 [project.optional-dependencies]
 sqlcipher = [

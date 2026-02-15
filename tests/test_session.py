@@ -99,3 +99,21 @@ def test_session_creates_audit_entry():
         assert row is not None
         assert row["yubikey_serial"] == "12345678"
         assert row["ip_address"] == "203.0.113.50"
+
+
+def test_create_session_with_auth_method():
+    """create_session should accept and store auth_method."""
+    _register_test_key()
+    session_id = create_session("12345678", auth_method="otp")
+    result = validate_session(session_id)
+    assert result is not None
+    assert result["auth_method"] == "otp"
+
+
+def test_create_session_default_auth_method():
+    """Default auth_method should be 'fido2'."""
+    _register_test_key()
+    session_id = create_session("12345678")
+    result = validate_session(session_id)
+    assert result is not None
+    assert result["auth_method"] == "fido2"
