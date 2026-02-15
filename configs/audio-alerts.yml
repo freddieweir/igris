@@ -140,6 +140,73 @@ gh:
     category: write  # Uses prefix_sound_write
     description: "Run GitHub workflow"
 
+# Docker operations
+docker:
+  container_exec:
+    modular_audio: assets/audio/action-docker-exec.wav
+    category: security
+    description: "Docker exec into container (dual-tap)"
+
+  container_rm:
+    modular_audio: assets/audio/action-docker-rm.wav
+    category: security
+    description: "Docker remove container (dual-tap)"
+
+  container_run:
+    modular_audio: assets/audio/action-docker-run.wav
+    category: write
+    description: "Docker run container"
+
+  container_start:
+    modular_audio: assets/audio/action-docker-start.wav
+    category: write
+    description: "Docker start container"
+
+  container_stop:
+    modular_audio: assets/audio/action-docker-stop.wav
+    category: write
+    description: "Docker stop container"
+
+  container_restart:
+    modular_audio: assets/audio/action-docker-restart.wav
+    category: write
+    description: "Docker restart container"
+
+  image_pull:
+    modular_audio: assets/audio/action-docker-pull.wav
+    category: read
+    description: "Docker pull image"
+
+  image_build:
+    modular_audio: assets/audio/action-docker-build.wav
+    category: write
+    description: "Docker build image"
+
+  image_rm:
+    modular_audio: assets/audio/action-docker-rmi.wav
+    category: security
+    description: "Docker remove image (dual-tap)"
+
+  compose_up:
+    modular_audio: assets/audio/action-docker-compose-up.wav
+    category: write
+    description: "Docker compose up"
+
+  compose_down:
+    modular_audio: assets/audio/action-docker-compose-down.wav
+    category: write
+    description: "Docker compose down"
+
+  compose_rm:
+    modular_audio: assets/audio/action-docker-compose-rm.wav
+    category: security
+    description: "Docker compose rm (dual-tap)"
+
+  system_prune:
+    modular_audio: assets/audio/action-docker-prune.wav
+    category: security
+    description: "Docker system prune (dual-tap)"
+
 # 1Password Touch ID alerts
 onepassword:
   enabled: true  # Play sound when 1Password Touch ID prompt appears

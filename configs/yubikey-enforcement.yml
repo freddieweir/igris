@@ -1,12 +1,17 @@
 # YubiKey Git Enforcement Configuration
-# Managed by tomb-of-nazarick/scripts/yubikey-git-setup.sh
-# Last updated: 2025-09-30
+# Managed by igris/scripts/hardware-git-setup.sh
+# Last updated: 2026-02-14
 
 enforcement:
   enabled: true                # Master switch for YubiKey enforcement
   require_tap: true            # Require physical tap (vs just presence)
   timeout_seconds: 30          # How long to wait for tap
   retry_attempts: 3            # Failed attempts before lockout warning
+
+yubikey:
+  slot: 1                       # OTP slot for HMAC-SHA1 challenge-response
+  # Override with IGRIS_OTP_SLOT env var
+  # Slot 1 = HMAC-SHA1 (igris), Slot 2 = Static password (VM login)
 
 verification:
   method: yubikey              # auto, yubikey, touchid
@@ -123,6 +128,14 @@ dangerous_commands:
   # chmod:
   #   enabled: false
   #   dangerous_patterns: ["777", "-R.*777", "000"]
+
+# Docker Operation Gating
+# Extends YubiKey verification to Docker commands based on risk level
+docker:
+  enabled: true
+  environment: main_only       # main_only | all (VM passes through)
+  # Policy file location (defaults to ~/.config/igris/policy.yaml)
+  policy_file: ~/.config/igris/policy.yaml
 
 devices:
   # Multiple YubiKeys can be registered for redundancy
