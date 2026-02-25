@@ -12,6 +12,7 @@
 
 # Local configuration (users may have custom configs)
 configs/yubikey-enforcement.yml.local
+configs/yubikey-enforcement.yml.disabled.*
 
 # Editor files
 .vscode/
@@ -54,3 +55,8 @@ dist/
 
 # Environment
 .env
+
+# Shell artifacts (accidental file creation from copy-pasted terminal output)
+YubiKey*
+ykman
+your
