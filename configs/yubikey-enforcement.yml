@@ -11,18 +11,26 @@ enforcement:
 yubikey:
   slot: 1                       # OTP slot for HMAC-SHA1 challenge-response
   # Override with IGRIS_OTP_SLOT env var
-  # Slot 1 = HMAC-SHA1 (igris), Slot 2 = Static password (VM login)
+  # Slot 1 = HMAC-SHA1 challenge-response (primary, short tap)
+  # Slot 2 = Static password (backup auth, long press)
 
 verification:
-  method: yubikey              # auto, yubikey, touchid
-  # auto: Try YubiKey OTP first, fall back to Touch ID, then other methods
-  # yubikey: YubiKey only (most secure - hardware token)
-  # touchid: Touch ID via 1Password CLI only (biometric)
+  method: yubikey              # auto, yubikey
+  # yubikey: YubiKey Slot 1 HMAC first, then Slot 2 backup password if enabled
+  # auto: Same as yubikey (backup password fallback if enabled)
 
-  touchid:
-    enabled: false             # Allow Touch ID as alternative to YubiKey
-    require_1password_cli: true  # Require 1Password CLI for Touch ID
-    priority: 2                # Try after YubiKey OTP with touch (1)
+  # Touch ID has been removed — replaced by backup password (YubiKey Slot 2)
+  # touchid: DEPRECATED — see backup_password below
+
+  backup_password:
+    enabled: true              # Allow YubiKey Slot 2 static password as fallback
+    hash_file: ~/.config/igris/backup-auth.hash  # PBKDF2-SHA256 hash of static password
+    session_file: ~/.config/igris/session-cache
+    session_minutes: 5         # How long a successful backup auth session lasts
+    max_attempts: 3            # Failed attempts before lockout
+    priority: 2                # Try after YubiKey Slot 1 HMAC (1)
+    # Setup: ./scripts/backup-password-setup.sh setup
+    # The static password on Slot 2 (long press) should be identical across all YubiKeys
 
   cache:
     enabled: true              # Enable verification caching (reduces double-tap)
