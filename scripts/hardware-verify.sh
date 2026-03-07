@@ -171,10 +171,13 @@ main() {
     echo "  3. Temporarily disable: export TOMB_YUBIKEY_ENABLED=false" >&2
     echo "  4. Check status: ${TOMB_DIR}/scripts/hardware-git-setup.sh status" >&2
 
-    # Check for repeated failures (potential attack)
-    local recent_failures=$(grep -c "\[FAILURE\]\|\[TIMEOUT\]" "$LOG_FILE" 2>/dev/null || echo "0")
+    # Check for repeated failures within 5-minute window (potential attack)
+    local five_min_ago
+    five_min_ago=$(date -u -v-5M +"%Y-%m-%dT%H:%M:%S" 2>/dev/null || date -u -d '5 minutes ago' +"%Y-%m-%dT%H:%M:%S")
+    local recent_failures
+    recent_failures=$(awk -v cutoff="$five_min_ago" '$1 >= cutoff' "$LOG_FILE" 2>/dev/null | grep -c "\[FAILURE\]\|\[TIMEOUT\]" || echo "0")
     if [ "$recent_failures" -ge 5 ]; then
-        print_warning "Multiple verification failures detected!"
+        print_warning "Multiple verification failures detected (${recent_failures} in last 5 minutes)!"
         # Send macOS notification
         osascript -e 'display notification "Multiple hardware verification failures detected" with title "Security Alert" sound name "Basso"' &>/dev/null || true
     fi

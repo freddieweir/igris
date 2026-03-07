@@ -457,7 +457,7 @@ play_state_audio() {
     fi
 }
 
-# Detect YubiKey presence
+# Detect YubiKey presence (multi-device aware)
 detect_yubikey() {
     # Uses global YKMAN_BIN variable set at script initialization
     if ! command -v "$YKMAN_BIN" &> /dev/null; then
@@ -476,16 +476,44 @@ detect_yubikey() {
         return 1
     fi
 
-    # Extract serial number
-    YUBIKEY_SERIAL=$(echo "$yubikey_info" | grep -oE 'Serial: [0-9]+' | awk '{print $2}')
+    # Extract all serial numbers
+    local serials
+    serials=($(echo "$yubikey_info" | grep -oE 'Serial: [0-9]+' | awk '{print $2}'))
 
+    if [ ${#serials[@]} -eq 0 ]; then
+        print_error "No YubiKey serial number found."
+        return 1
+    fi
+
+    # Single device: use it directly
+    if [ ${#serials[@]} -eq 1 ]; then
+        YUBIKEY_SERIAL="${serials[0]}"
+        return 0
+    fi
+
+    # Multiple devices: find the one with OTP Slot $SLOT configured
+    print_info "Multiple YubiKeys detected (${#serials[@]}), selecting device with OTP Slot ${SLOT}..."
+    for serial in "${serials[@]}"; do
+        local otp_check
+        if otp_check=$("$YKMAN_BIN" --device "$serial" otp info 2>/dev/null); then
+            if ! echo "$otp_check" | grep -q "Slot ${SLOT}: empty"; then
+                YUBIKEY_SERIAL="$serial"
+                print_info "Selected YubiKey with configured OTP Slot ${SLOT} (Serial: ******${serial: -2})"
+                return 0
+            fi
+        fi
+    done
+
+    # No device has OTP Slot configured - fall back to first device
+    print_warning "No YubiKey has OTP Slot ${SLOT} configured, using first device"
+    YUBIKEY_SERIAL="${serials[0]}"
     return 0
 }
 
 # Verify OTP slot is configured with touch requirement
 check_otp_touch_configured() {
     local otp_info
-    if ! otp_info=$($YKMAN_BIN otp info 2>/dev/null); then
+    if ! otp_info=$($YKMAN_BIN --device "$YUBIKEY_SERIAL" otp info 2>/dev/null); then
         return 1
     fi
 
@@ -663,7 +691,7 @@ verify_otp_touch() {
 
     # Check if OTP slot is configured
     local otp_info
-    if ! otp_info=$($YKMAN_BIN otp info 2>/dev/null); then
+    if ! otp_info=$($YKMAN_BIN --device "$YUBIKEY_SERIAL" otp info 2>/dev/null); then
         print_warning "OTP not configured on this YubiKey"
         return 1
     fi
@@ -699,7 +727,7 @@ verify_otp_touch() {
     local start_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
 
     # Try the challenge-response
-    if response=$(_timeout_cmd "$TIMEOUT_SECONDS" $YKMAN_BIN otp calculate "$SLOT" "$challenge" 2>&1); then
+    if response=$(_timeout_cmd "$TIMEOUT_SECONDS" $YKMAN_BIN --device "$YUBIKEY_SERIAL" otp calculate "$SLOT" "$challenge" 2>&1); then
         local end_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
         local elapsed=$(($(date +%s) - start_time))
         local elapsed_ms=$((end_time_ms - start_time_ms))
@@ -752,7 +780,7 @@ verify_otp() {
 
     # Check if OTP is configured
     local otp_info
-    if ! otp_info=$($YKMAN_BIN otp info 2>/dev/null); then
+    if ! otp_info=$($YKMAN_BIN --device "$YUBIKEY_SERIAL" otp info 2>/dev/null); then
         print_warning "OTP not configured on this YubiKey"
         return 1
     fi
@@ -772,7 +800,7 @@ verify_otp() {
     local response
     local start_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
 
-    if response=$(_timeout_cmd "$TIMEOUT_SECONDS" $YKMAN_BIN otp chalresp "$SLOT" "$challenge" 2>/dev/null); then
+    if response=$(_timeout_cmd "$TIMEOUT_SECONDS" $YKMAN_BIN --device "$YUBIKEY_SERIAL" otp chalresp "$SLOT" "$challenge" 2>/dev/null); then
         local end_time_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
         local elapsed_ms=$((end_time_ms - start_time_ms))
 
@@ -878,10 +906,13 @@ main() {
     echo "  3. Check YubiKey firmware supports OTP" >&2
     log_verification "FAILURE" "otp_not_configured" "$YUBIKEY_SERIAL"
 
-    # Check for repeated failures (potential attack)
-    local recent_failures=$(grep -c "\[FAILURE\]\|\[TIMEOUT\]" "$LOG_FILE" 2>/dev/null || echo "0")
+    # Check for repeated failures within 5-minute window (potential attack)
+    local five_min_ago
+    five_min_ago=$(date -u -v-5M +"%Y-%m-%dT%H:%M:%S" 2>/dev/null || date -u -d '5 minutes ago' +"%Y-%m-%dT%H:%M:%S")
+    local recent_failures
+    recent_failures=$(awk -v cutoff="$five_min_ago" '$1 >= cutoff' "$LOG_FILE" 2>/dev/null | grep -c "\[FAILURE\]\|\[TIMEOUT\]" || echo "0")
     if [ "$recent_failures" -ge 5 ]; then
-        print_warning "Multiple verification failures detected!"
+        print_warning "Multiple verification failures detected (${recent_failures} in last 5 minutes)!"
         # Send macOS notification
         osascript -e 'display notification "Multiple YubiKey verification failures detected" with title "Security Alert" sound name "Basso"' &>/dev/null || true
     fi
