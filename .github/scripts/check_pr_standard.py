@@ -50,6 +50,7 @@ WAIVER_RE = re.compile(
 WAIVER_MIN_REASON = 10
 
 PLACEHOLDER_RE = re.compile(r"\[\[[^\]\n]+\]\]")
+FOOTER_RE = re.compile(r"^\s*(?:🤖\s*)?Generated with \[?Claude Code\]?", re.I | re.M)
 CHECKED_RE = re.compile(r"^\s*[-*]\s+\[[xX]\]\s+\S", re.M)
 UNCHECKED_RE = re.compile(r"^\s*[-*]\s+\[ \]\s+\S", re.M)
 BULLET_RE = re.compile(r"^\s*[-*]\s+\S", re.M)
@@ -110,6 +111,10 @@ REDACTION_PATTERNS: dict[str, tuple[re.Pattern[str], str]] = {
     "private-key": (
         re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
         "private key block",
+    ),
+    "session-url": (
+        re.compile(r"https?://claude\.ai/code/session_[A-Za-z0-9]+"),
+        "agent session link (name the tool in Provenance instead)",
     ),
 }
 BLOCKED_DOMAINS_ENV = "PR_STANDARD_BLOCKED_DOMAINS"
@@ -286,6 +291,11 @@ def check_placeholders(report: Report, visible: str) -> None:
         report.add("placeholders", ERROR, f"Template placeholders left in the body: {shown}")
 
 
+def check_footer(report: Report, visible: str) -> None:
+    if FOOTER_RE.search(visible):
+        report.add("footer", ERROR, "Drop the `Generated with Claude Code` footer; Provenance already says who authored the PR.")
+
+
 def check_redaction(report: Report, raw: str, blocked_domains: list[str]) -> None:
     allowed: set[str] = set()
     for m in ALLOW_RE.finditer(raw):
@@ -318,6 +328,7 @@ def run(body: str, changed_files: list[str], blocked_domains: list[str] | None =
     check_details(report, visible)
     check_provenance(report, sections)
     check_placeholders(report, visible)
+    check_footer(report, visible)
     check_redaction(report, body, blocked_domains or [])
     return report
 

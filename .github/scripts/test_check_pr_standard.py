@@ -251,6 +251,15 @@ class RedactionTests(unittest.TestCase):
         self.assertIn("redaction", errors(self.leaked("eyJ" + "a" * 12 + ".eyJ" + "b" * 12 + ".sig")))
         self.assertIn("redaction", errors(self.leaked("-----BEGIN OPENSSH PRIVATE KEY-----")))
 
+    def test_agent_session_url(self):
+        self.assertIn("redaction", errors(self.leaked("see https://claude.ai/code/session_01ABCdefGHIjklMNOpqrSTUv")))
+
+    def test_generated_with_footer_rejected(self):
+        body = GOLDEN + "\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n"
+        self.assertIn("footer", errors(run(body)))
+        body = GOLDEN + "\nGenerated with Claude Code\n"
+        self.assertIn("footer", errors(run(body)))
+
     def test_blocked_domain_from_env(self):
         body = GOLDEN.replace("@bot", "https://vault.corp-example.com")
         self.assertNotIn("redaction", errors(run(body)))

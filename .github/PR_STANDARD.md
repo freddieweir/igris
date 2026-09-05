@@ -65,7 +65,9 @@ an ascii diagram of the touched flow tells the reader where the change sits.
 
 **Provenance.** Who opened and authored the PR (a bot account counts), who
 reviewed and merged it, how each commit was tested before it was made, and
-where the demo assets live so they can be regenerated.
+where the demo assets live so they can be regenerated. This is the only place
+the authoring tool is named: no `Generated with …` footer after it, and no
+session link anywhere in the body. The check fails on both.
 
 ## Redaction
 
@@ -92,6 +94,7 @@ fails on any hit, reporting only a masked prefix so the report cannot leak:
 | `serial` | 6 to 10 digits after `serial` or `--device` |
 | `api-key` | Anthropic, OpenAI, GitHub, AWS and Slack token shapes |
 | `jwt`, `private-key` | `eyJ…eyJ` pairs and `BEGIN … PRIVATE KEY` |
+| `session-url` | `claude.ai/code/session_…` links; the tool is named in Provenance, the session stays private |
 | `domain:<d>` | each domain in the `PRODUCTION_DOMAIN` repository variable |
 
 A pattern with a legitimate hit (a public IP in a docs example, say) can be
@@ -126,5 +129,7 @@ identically on a laptop, in Actions, and in an agent sandbox.
 An agent opening a PR here writes the body from `.github/PULL_REQUEST_TEMPLATE.md`,
 replaces every `[[placeholder]]`, records and publishes a demo with
 `scripts/publish-demo.sh` when it can, and otherwise states the waiver reason
-honestly. It runs the checker on the drafted body and fixes every error before
+honestly. It names itself once, in Provenance, and appends no attribution
+footer and no session link: the body and the commit messages carry nothing
+that identifies a private session. It runs the checker on the drafted body and fixes every error before
 the PR is opened. `CLAUDE.md` in the repository root repeats this in short.
