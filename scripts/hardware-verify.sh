@@ -2,33 +2,34 @@
 
 # Hardware Verification Orchestrator
 # Part of Igris security enforcement system
-# Delegates to specific verification methods (YubiKey, Touch ID)
+# Delegates to: YubiKey Slot 1 (HMAC) → YubiKey Slot 2 (backup password)
 
 set -euo pipefail
 
 # Configuration
 TOMB_DIR="${TOMB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 YUBIKEY_VERIFY="${TOMB_DIR}/scripts/yubikey-verify.sh"
-TOUCHID_VERIFY="${TOMB_DIR}/scripts/touchid-verify.sh"
+BACKUP_VERIFY="${TOMB_DIR}/scripts/backup-password-verify.sh"
 CONFIG_FILE="${TOMB_DIR}/configs/yubikey-enforcement.yml"
 LOG_FILE="${HOME}/.tomb-yubikey-verifications.log"
 
-# Parse config for verification method and Touch ID settings
+# Parse config for verification method and backup password settings
 # Default to yubikey-only mode (most secure)
 VERIFICATION_METHOD="${TOMB_VERIFICATION_METHOD:-}"
-TOUCHID_ENABLED="${TOMB_TOUCHID_ENABLED:-}"
+BACKUP_PASSWORD_ENABLED="${TOMB_BACKUP_PASSWORD_ENABLED:-}"
 
 # Read from config file if not set via environment
 if [ -z "$VERIFICATION_METHOD" ] && [ -f "$CONFIG_FILE" ]; then
     VERIFICATION_METHOD=$(grep -E "^\s*method:" "$CONFIG_FILE" | head -1 | awk '{print $2}' | tr -d '\r')
 fi
-if [ -z "$TOUCHID_ENABLED" ] && [ -f "$CONFIG_FILE" ]; then
-    TOUCHID_ENABLED=$(grep -E "^\s+enabled:" "$CONFIG_FILE" | head -1 | awk '{print $2}' | tr -d '\r')
+if [ -z "$BACKUP_PASSWORD_ENABLED" ] && [ -f "$CONFIG_FILE" ]; then
+    # Parse backup_password.enabled specifically
+    BACKUP_PASSWORD_ENABLED=$(awk '/^\s+backup_password:/{found=1} found && /enabled:/{print $2; exit}' "$CONFIG_FILE" | tr -d '\r')
 fi
 
-# Defaults: yubikey-only mode, Touch ID disabled
+# Defaults: yubikey-only mode, backup password enabled
 VERIFICATION_METHOD="${VERIFICATION_METHOD:-yubikey}"
-TOUCHID_ENABLED="${TOUCHID_ENABLED:-false}"
+BACKUP_PASSWORD_ENABLED="${BACKUP_PASSWORD_ENABLED:-true}"
 
 # Use Homebrew ykman explicitly to avoid broken Python installations
 if [ -x "/opt/homebrew/bin/ykman" ]; then
@@ -87,26 +88,24 @@ check_yubikey_available() {
     command -v "$YKMAN_BIN" &> /dev/null && "$YKMAN_BIN" list 2>/dev/null | grep -q "YubiKey"
 }
 
-# Check if Touch ID is available
-check_touchid_available() {
-    command -v op &> /dev/null && op account list &>/dev/null 2>&1
+# Check if backup password is available and configured
+check_backup_available() {
+    [ -f "${HOME}/.config/igris/backup-auth.hash" ] && [ -x "$BACKUP_VERIFY" ]
 }
 
-# Check if Touch ID fallback is allowed based on config
-is_touchid_fallback_allowed() {
-    # Respect verification method setting
+# Check if backup password fallback is allowed based on config
+is_backup_fallback_allowed() {
     case "$VERIFICATION_METHOD" in
         yubikey)
-            # YubiKey-only mode: no Touch ID fallback
+            # YubiKey-only mode: allow backup password if enabled (it's still YubiKey-based)
+            if [ "$BACKUP_PASSWORD_ENABLED" = "true" ]; then
+                return 0
+            fi
             return 1
             ;;
-        touchid)
-            # Touch ID only mode: always allow (but YubiKey skipped above)
-            return 0
-            ;;
         auto|*)
-            # Auto mode: check if Touch ID is explicitly enabled
-            if [ "$TOUCHID_ENABLED" = "true" ]; then
+            # Auto mode: check if backup password is explicitly enabled
+            if [ "$BACKUP_PASSWORD_ENABLED" = "true" ]; then
                 return 0
             fi
             return 1
@@ -122,38 +121,38 @@ main() {
     fi
 
     print_info "Hardware verification required for: ${OPERATION}"
-    print_info "Verification mode: ${VERIFICATION_METHOD} (Touch ID fallback: ${TOUCHID_ENABLED})"
+    print_info "Verification mode: ${VERIFICATION_METHOD} (backup password fallback: ${BACKUP_PASSWORD_ENABLED})"
     echo "" >&2
 
     # Try verification methods based on configuration
 
-    # 1. YubiKey (most secure - hardware token with cryptographic verification)
-    # Skip YubiKey if TOMB_TOUCHID_ONLY is set (for testing) or method is touchid-only
-    if [ "${TOMB_TOUCHID_ONLY:-false}" = "false" ] && [ "$VERIFICATION_METHOD" != "touchid" ] && check_yubikey_available; then
-        print_info "Attempting YubiKey verification (most secure)..."
+    # 1. YubiKey Slot 1 HMAC-SHA1 (most secure - cryptographic challenge-response)
+    if check_yubikey_available; then
+        print_info "Attempting YubiKey HMAC verification (Slot 1, short tap)..."
         if "$YUBIKEY_VERIFY" "$OPERATION"; then
             exit 0
         fi
         echo "" >&2
 
-        # Only mention fallback if Touch ID is actually allowed
-        if is_touchid_fallback_allowed; then
-            print_warning "YubiKey verification failed, trying Touch ID fallback..."
+        if is_backup_fallback_allowed; then
+            print_warning "YubiKey HMAC failed, trying backup password (Slot 2, long press)..."
         else
-            print_warning "YubiKey verification failed (Touch ID fallback disabled)"
+            print_warning "YubiKey HMAC failed (backup password fallback disabled)"
         fi
         echo "" >&2
     fi
 
-    # 2. Touch ID (secure - biometric with hardware-backed Secure Enclave)
-    # Only attempt if allowed by configuration
-    if is_touchid_fallback_allowed && check_touchid_available; then
-        print_info "Attempting Touch ID verification..."
-        if "$TOUCHID_VERIFY" "$OPERATION"; then
+    # 2. Backup Password (YubiKey Slot 2 static password — still hardware-bound)
+    if is_backup_fallback_allowed && check_backup_available; then
+        if "$BACKUP_VERIFY" "$OPERATION"; then
             exit 0
         fi
         echo "" >&2
-        print_warning "Touch ID verification failed"
+        print_warning "Backup password verification failed"
+        echo "" >&2
+    elif is_backup_fallback_allowed && ! check_backup_available; then
+        print_warning "Backup password not configured"
+        print_info "Set up with: ${TOMB_DIR}/scripts/backup-password-setup.sh setup"
         echo "" >&2
     fi
 
@@ -163,20 +162,30 @@ main() {
     echo "" >&2
     print_info "Recovery options:" >&2
     echo "  1. Connect your YubiKey and try again" >&2
-    if [ "$VERIFICATION_METHOD" = "yubikey" ]; then
-        echo "  2. Enable Touch ID fallback: set touchid.enabled: true in config" >&2
-    else
-        echo "  2. Ensure 1Password CLI is signed in: op signin" >&2
-    fi
+    echo "  2. Set up backup password: ${TOMB_DIR}/scripts/backup-password-setup.sh setup" >&2
     echo "  3. Temporarily disable: export TOMB_YUBIKEY_ENABLED=false" >&2
     echo "  4. Check status: ${TOMB_DIR}/scripts/hardware-git-setup.sh status" >&2
 
-    # Check for repeated failures (potential attack)
-    local recent_failures=$(grep -c "\[FAILURE\]\|\[TIMEOUT\]" "$LOG_FILE" 2>/dev/null || echo "0")
+    # Check for repeated failures in last 5 minutes (potential attack)
+    local failure_window=300  # 5 minutes in seconds
+    local current_epoch=$(date +%s)
+    local recent_failures=0
+    if [ -f "$LOG_FILE" ]; then
+        while IFS= read -r line; do
+            if [[ "$line" =~ \[FAILURE\]|\[TIMEOUT\] ]]; then
+                local log_ts=$(echo "$line" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' | head -1)
+                if [ -n "$log_ts" ]; then
+                    local log_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$log_ts" +%s 2>/dev/null || echo "0")
+                    if [ $((current_epoch - log_epoch)) -lt $failure_window ]; then
+                        recent_failures=$((recent_failures + 1))
+                    fi
+                fi
+            fi
+        done < "$LOG_FILE"
+    fi
     if [ "$recent_failures" -ge 5 ]; then
         print_warning "Multiple verification failures detected!"
-        # Send macOS notification
-        osascript -e 'display notification "Multiple hardware verification failures detected" with title "Security Alert" sound name "Basso"' &>/dev/null || true
+        osascript -e 'display notification "Multiple hardware verification failures in last 5 minutes" with title "🔒 Security Alert" sound name "Basso"' &>/dev/null || true
     fi
 
     exit 1

@@ -150,6 +150,89 @@ confirm_action() {
     esac
 }
 
+# ── Managed block helpers (conda-style markers) ──────────────────────────
+# Markers: # >>> igris <name> >>>  ...  # <<< igris <name> <<<
+
+# Remove a managed block from a file (idempotent)
+# Usage: remove_managed_block <file> <block_name>
+remove_managed_block() {
+    local file="$1"
+    local block_name="$2"
+    local start_marker="# >>> igris ${block_name} >>>"
+    local end_marker="# <<< igris ${block_name} <<<"
+
+    if ! grep -qF "$start_marker" "$file" 2>/dev/null; then
+        return 1  # Block not found
+    fi
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    awk -v start="$start_marker" -v end="$end_marker" '
+        $0 == start { skip=1; next }
+        $0 == end   { skip=0; next }
+        !skip       { print }
+    ' "$file" > "$tmpfile"
+    mv "$tmpfile" "$file"
+    return 0
+}
+
+# Remove legacy (pre-marker) igris blocks from shell config
+# Handles old installations that used comment headers without start/end markers
+cleanup_legacy_blocks() {
+    local file="$1"
+
+    # Quick check: any legacy TOMB_DIR exports outside managed blocks?
+    local has_legacy=false
+    local in_managed=false
+    while IFS= read -r line; do
+        case "$line" in
+            "# >>> igris "*) in_managed=true ;;
+            "# <<< igris "*) in_managed=false ;;
+            "export TOMB_DIR="*)
+                if [ "$in_managed" = false ]; then
+                    has_legacy=true
+                    break
+                fi
+                ;;
+        esac
+    done < "$file"
+
+    if [ "$has_legacy" = false ]; then
+        return 1  # No legacy content
+    fi
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    awk '
+        # Preserve new-style managed blocks verbatim
+        /^# >>> igris / { managed=1 }
+        managed { print; if (/^# <<< igris /) managed=0; next }
+
+        # Remove legacy igris lines (outside managed blocks)
+        /^# YubiKey Git Enforcement/ { next }
+        /^# DO NOT EDIT - Use .hardware-git-setup/ { next }
+        /^# Added on: [0-9]/ { next }
+        /^# Wrapper functions$/ { next }
+        /^# Preserve completions for wrapped commands/ { next }
+        /^export TOMB_DIR=/ { next }
+        /^export TOMB_YUBIKEY_ENABLED=/ { next }
+        /^compdef _git git=git$/ { next }
+        /^compdef _gh gh=gh$/ { next }
+
+        # Remove function blocks that call igris wrapper scripts
+        /^git\(\) \{$/ || /^gh\(\) \{$/ {
+            func_line = $0; getline body; getline close
+            if (body ~ /igris.*wrapper/) next  # Skip entire function
+            print func_line; print body; print close; next
+        }
+
+        { print }
+    ' "$file" > "$tmpfile"
+
+    mv "$tmpfile" "$file"
+    return 0
+}
+
 # Check prerequisites
 check_prerequisites() {
     local missing=0
@@ -296,53 +379,47 @@ cmd_setup() {
     # Add shell aliases
     print_info "Installing shell wrappers..."
 
-    # Check if already installed
-    if grep -q "YubiKey Git Enforcement" "$shell_config" 2>/dev/null; then
-        print_warning "Wrappers already installed in $shell_config"
-        if [ "$interactive" = true ]; then
-            if confirm_action "Reinstall wrappers?" "no"; then
-                # Remove old installation
-                sed -i.bak '/# YubiKey Git Enforcement/,/^$/d' "$shell_config"
-            else
-                print_info "Skipping wrapper installation"
-                return 0
-            fi
-        fi
+    # Clean up any legacy (pre-marker) installations first
+    if cleanup_legacy_blocks "$shell_config"; then
+        print_info "Cleaned up legacy igris blocks"
     fi
 
-    if ! grep -q "YubiKey Git Enforcement" "$shell_config" 2>/dev/null; then
-        cat >> "$shell_config" << EOF
+    # Remove existing managed block if present (idempotent reinstall)
+    if remove_managed_block "$shell_config" "git enforcement"; then
+        print_info "Removed existing git/gh wrappers (reinstalling clean)"
+    fi
 
-# YubiKey Git Enforcement (managed by tomb-of-nazarick)
-# Added on: $(date +%Y-%m-%d)
-# DO NOT EDIT - Use 'hardware-git-setup.sh' commands to manage
+    # Write fresh block with conda-style markers
+    cat >> "$shell_config" << EOF
 
+# >>> igris git enforcement >>>
+# Managed by igris — do not edit manually
+# Use 'hardware-git-setup.sh' commands to manage
 export TOMB_DIR="$TOMB_DIR"
 export TOMB_YUBIKEY_ENABLED=true
 
-# Wrapper functions
 git() {
-    "$GIT_WRAPPER" "\$@"
+    "\${TOMB_DIR}/scripts/git-yubikey-wrapper.sh" "\$@"
 }
 
 gh() {
-    "$GH_WRAPPER" "\$@"
+    "\${TOMB_DIR}/scripts/gh-yubikey-wrapper.sh" "\$@"
 }
-
 EOF
 
-        # Add shell-specific completion preservation
-        if [[ "$shell_config" == *"zshrc"* ]]; then
-            cat >> "$shell_config" << 'EOF'
-# Preserve completions for wrapped commands
+    # Add shell-specific completion preservation
+    if [[ "$shell_config" == *"zshrc"* ]]; then
+        cat >> "$shell_config" << 'EOF'
+
 compdef _git git=git
 compdef _gh gh=gh
-
 EOF
-        fi
-
-        print_success "Shell wrappers installed"
     fi
+
+    echo "# <<< igris git enforcement <<<" >> "$shell_config"
+    echo "" >> "$shell_config"
+
+    print_success "Shell wrappers installed"
 
     # Install dangerous commands wrapper (rm) if requested
     if [ "$install_dangerous_commands" = true ]; then
@@ -477,22 +554,20 @@ install_rm_wrapper() {
 
     print_info "Installing dangerous rm command protection..."
 
-    # Check if already installed
-    if grep -q "Dangerous rm Protection" "$shell_config" 2>/dev/null; then
-        print_warning "rm wrapper already installed in $shell_config"
-        return 0
-    fi
+    # Remove existing managed block if present (idempotent reinstall)
+    remove_managed_block "$shell_config" "dangerous rm" 2>/dev/null || true
 
     cat >> "$shell_config" << EOF
 
-# Dangerous rm Protection (managed by igris)
+# >>> igris dangerous rm >>>
 # Requires YubiKey tap for dangerous rm operations (rm -rf /, rm -rf ~, etc.)
 # Only enforces on main machine - VM environments pass through
 export TOMB_DANGEROUS_ENABLED=true
 
 rm() {
-    "$RM_WRAPPER" "\$@"
+    "\${TOMB_DIR}/scripts/rm-yubikey-wrapper.sh" "\$@"
 }
+# <<< igris dangerous rm <<<
 
 EOF
 
@@ -505,11 +580,8 @@ install_docker_wrapper() {
 
     print_info "Installing Docker operation gating..."
 
-    # Check if already installed
-    if grep -q "Docker Operation Gating" "$shell_config" 2>/dev/null; then
-        print_warning "Docker wrapper already installed in $shell_config"
-        return 0
-    fi
+    # Remove existing managed block if present (idempotent reinstall)
+    remove_managed_block "$shell_config" "docker gating" 2>/dev/null || true
 
     # Resolve Docker binary at install time
     local docker_bin
@@ -519,38 +591,30 @@ install_docker_wrapper() {
         docker_bin=""
     fi
 
-    cat >> "$shell_config" << EOF
-
-# Docker Operation Gating (managed by igris)
-# Requires YubiKey for state-changing Docker operations
-# Only enforces on main machine — VM environments pass through
-export IGRIS_DOCKER_ENABLED=true
-EOF
-
-    # Only export binary path if we found one
-    if [ -n "$docker_bin" ]; then
-        cat >> "$shell_config" << EOF
-export IGRIS_DOCKER_BINARY="${docker_bin}"
-EOF
-    fi
-
-    cat >> "$shell_config" << EOF
-
-docker() {
-    "$DOCKER_WRAPPER" "\$@"
-}
-
-EOF
-
-    # Also handle docker-compose standalone binary if present
-    if command -v docker-compose &>/dev/null; then
-        cat >> "$shell_config" << EOF
-docker-compose() {
-    "$DOCKER_WRAPPER" compose "\$@"
-}
-
-EOF
-    fi
+    # Build the block as a single unit
+    {
+        echo ""
+        echo "# >>> igris docker gating >>>"
+        echo "# Requires YubiKey for state-changing Docker operations"
+        echo "# Only enforces on main machine — VM environments pass through"
+        echo "export IGRIS_DOCKER_ENABLED=true"
+        if [ -n "$docker_bin" ]; then
+            echo "export IGRIS_DOCKER_BINARY=\"${docker_bin}\""
+        fi
+        echo ""
+        echo 'docker() {'
+        echo '    "${TOMB_DIR}/scripts/docker-yubikey-wrapper.sh" "$@"'
+        echo '}'
+        # Also handle docker-compose standalone binary if present
+        if command -v docker-compose &>/dev/null; then
+            echo ""
+            echo 'docker-compose() {'
+            echo '    "${TOMB_DIR}/scripts/docker-yubikey-wrapper.sh" compose "$@"'
+            echo '}'
+        fi
+        echo "# <<< igris docker gating <<<"
+        echo ""
+    } >> "$shell_config"
 
     # Create default policy file
     install_docker_policy
@@ -787,21 +851,25 @@ cmd_status() {
     fi
 
     # Check wrappers
-    if grep -q "git-yubikey-wrapper" "$shell_config" 2>/dev/null; then
+    if grep -qF "# >>> igris git enforcement >>>" "$shell_config" 2>/dev/null; then
         echo -e "Wrappers:    ${GREEN}✅ Installed${NC} (git, gh)"
+    elif grep -q "git-yubikey-wrapper" "$shell_config" 2>/dev/null; then
+        echo -e "Wrappers:    ${YELLOW}⚠️  Legacy format${NC} (run setup to upgrade markers)"
     else
         echo -e "Wrappers:    ${RED}❌ Not installed${NC}"
     fi
 
     # Check rm wrapper
-    if grep -q "Dangerous rm Protection" "$shell_config" 2>/dev/null; then
+    if grep -qF "# >>> igris dangerous rm >>>" "$shell_config" 2>/dev/null; then
         echo -e "rm protect:  ${GREEN}✅ Installed${NC} (dangerous rm requires YubiKey)"
+    elif grep -q "rm-yubikey-wrapper" "$shell_config" 2>/dev/null; then
+        echo -e "rm protect:  ${YELLOW}⚠️  Legacy format${NC} (run setup to upgrade markers)"
     else
         echo -e "rm protect:  ${YELLOW}⚠️  Not installed${NC} (add with --dangerous-commands)"
     fi
 
     # Check Docker wrapper
-    if grep -q "Docker Operation Gating" "$shell_config" 2>/dev/null; then
+    if grep -qF "# >>> igris docker gating >>>" "$shell_config" 2>/dev/null; then
         echo -e "Docker:      ${GREEN}✅ Installed${NC} (operations gated by policy)"
         if [ -f "${HOME}/.config/igris/policy.yaml" ]; then
             echo -e "             Policy: ~/.config/igris/policy.yaml"
@@ -940,30 +1008,26 @@ cmd_remove() {
 
     # Remove from shell config
     print_info "Removing shell wrappers..."
-    if grep -q "YubiKey Git Enforcement" "$shell_config" 2>/dev/null; then
-        # Remove the wrapper section and any blank lines it leaves
-        sed -i.bak '/# YubiKey Git Enforcement/,/^$/d' "$shell_config"
-        # Also remove the compdef lines if they exist
-        sed -i.bak '/compdef _git git=git/d' "$shell_config"
-        sed -i.bak '/compdef _gh gh=gh/d' "$shell_config"
+
+    # Clean up any legacy (pre-marker) installations first
+    if cleanup_legacy_blocks "$shell_config"; then
+        print_info "Cleaned up legacy igris blocks"
+    fi
+
+    # Remove managed blocks (new marker format)
+    if remove_managed_block "$shell_config" "git enforcement"; then
         print_success "Removed git/gh wrappers from shell config"
     else
         print_info "No git/gh wrappers found in shell config"
     fi
 
-    # Remove rm wrapper
-    if grep -q "Dangerous rm Protection" "$shell_config" 2>/dev/null; then
-        sed -i.bak '/# Dangerous rm Protection/,/^$/d' "$shell_config"
+    if remove_managed_block "$shell_config" "dangerous rm"; then
         print_success "Removed rm wrapper from shell config"
     else
         print_info "No rm wrapper found in shell config"
     fi
 
-    # Remove Docker wrapper
-    if grep -q "Docker Operation Gating" "$shell_config" 2>/dev/null; then
-        sed -i.bak '/# Docker Operation Gating/,/^$/d' "$shell_config"
-        # Also remove docker-compose wrapper if present
-        sed -i.bak '/^docker-compose()/,/^$/d' "$shell_config"
+    if remove_managed_block "$shell_config" "docker gating"; then
         print_success "Removed Docker wrapper from shell config"
     else
         print_info "No Docker wrapper found in shell config"

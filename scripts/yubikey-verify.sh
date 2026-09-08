@@ -878,12 +878,28 @@ main() {
     echo "  3. Check YubiKey firmware supports OTP" >&2
     log_verification "FAILURE" "otp_not_configured" "$YUBIKEY_SERIAL"
 
-    # Check for repeated failures (potential attack)
-    local recent_failures=$(grep -c "\[FAILURE\]\|\[TIMEOUT\]" "$LOG_FILE" 2>/dev/null || echo "0")
+    # Check for repeated failures in last 5 minutes (potential attack)
+    local failure_window=300  # 5 minutes in seconds
+    local current_epoch=$(date +%s)
+    local recent_failures=0
+    if [ -f "$LOG_FILE" ]; then
+        while IFS= read -r line; do
+            # Extract timestamp and check if it's a failure/timeout
+            if [[ "$line" =~ \[FAILURE\]|\[TIMEOUT\] ]]; then
+                # Parse ISO timestamp from log line
+                local log_ts=$(echo "$line" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}' | head -1)
+                if [ -n "$log_ts" ]; then
+                    local log_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "$log_ts" +%s 2>/dev/null || echo "0")
+                    if [ $((current_epoch - log_epoch)) -lt $failure_window ]; then
+                        recent_failures=$((recent_failures + 1))
+                    fi
+                fi
+            fi
+        done < "$LOG_FILE"
+    fi
     if [ "$recent_failures" -ge 5 ]; then
         print_warning "Multiple verification failures detected!"
-        # Send macOS notification
-        osascript -e 'display notification "Multiple YubiKey verification failures detected" with title "Security Alert" sound name "Basso"' &>/dev/null || true
+        osascript -e 'display notification "Multiple YubiKey verification failures detected in last 5 minutes" with title "🔒 Security Alert" sound name "Basso"' &>/dev/null || true
     fi
 
     exit 1
